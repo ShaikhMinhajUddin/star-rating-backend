@@ -23,6 +23,13 @@ const ratingSchema = new mongoose.Schema({
     trim: true
   },
   
+  // NEW: Customer Field
+  customer: {
+    type: String,
+    enum: ["Sam's Club", "Walmart", "Other"],
+    default: "Other"
+  },
+  
   // Star Ratings (Individual star counts)
   star1: {
     type: Number,
@@ -112,6 +119,13 @@ const ratingSchema = new mongoose.Schema({
     hole: { type: Boolean, default: false }
   },
   
+  // NEW: Form Type
+  formType: {
+    type: String,
+    enum: ['feedback', 'review'],
+    default: 'feedback'
+  },
+  
   // Timestamps
   createdAt: {
     type: Date,
@@ -160,7 +174,7 @@ ratingSchema.pre('save', function(next) {
   const ratings = [this.star1, this.star2, this.star3, this.star4, this.star5];
   const validRatings = ratings.filter(r => r > 0);
   
-  if (validRatings.length > 0) {
+  if (validRatings.length > 0 && !this.overallRating) {
     const sum = validRatings.reduce((a, b) => a + b, 0);
     this.overallRating = parseFloat((sum / validRatings.length).toFixed(1));
   }
@@ -180,9 +194,8 @@ ratingSchema.index({ productDescription: 1 });
 ratingSchema.index({ item: 1 });
 ratingSchema.index({ overallRating: 1 });
 ratingSchema.index({ createdAt: -1 });
-ratingSchema.index({ 'qualityIssues.openCorner': 1 });
-ratingSchema.index({ 'qualityIssues.looseThread': 1 });
-ratingSchema.index({ 'qualityIssues.thinFabric': 1 });
+ratingSchema.index({ formType: 1 }); // NEW: Index for form type
+ratingSchema.index({ customer: 1 }); // NEW: Index for customer
 
 const Rating = mongoose.model('Rating', ratingSchema);
 

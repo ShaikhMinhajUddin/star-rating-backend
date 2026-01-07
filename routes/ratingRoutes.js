@@ -2,26 +2,86 @@ const express = require('express');
 const router = express.Router();
 const Rating = require('../models/Rating');
 
-// Create a new rating entry
+// Create a new rating entry (Feedback Form)
 router.post('/', async (req, res) => {
   try {
     const ratingData = req.body;
     
-    // Validate required fields
-    const requiredFields = ['year', 'month', 'date', 'productDescription', 'item', 'comboColor', 'overallRating'];
+    // Validate required fields for FEEDBACK FORM
+    const requiredFields = ['productDescription', 'item', 'comboColor', 'customer', 'overallRating', 'ttlReviews'];
     for (const field of requiredFields) {
       if (!ratingData[field]) {
         return res.status(400).json({ error: `${field} is required` });
       }
     }
 
+    // Set form type
+    ratingData.formType = 'feedback';
+    
     const rating = new Rating(ratingData);
     await rating.save();
     
     res.status(201).json({
       success: true,
-      message: 'Rating created successfully',
+      message: 'Feedback submitted successfully!',
       data: rating
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a new review entry (Reviews Form)
+router.post('/reviews', async (req, res) => {
+  try {
+    const reviewData = req.body;
+    
+    // Validate required fields for REVIEWS FORM
+    const requiredFields = ['productDescription', 'item', 'comboColor', 'overallRating', 'ttlReviews'];
+    for (const field of requiredFields) {
+      if (!reviewData[field]) {
+        return res.status(400).json({ error: `${field} is required` });
+      }
+    }
+
+    // Set form type and auto-fill empty fields
+    reviewData.formType = 'review';
+    reviewData.date = new Date(); // Auto-fill date
+    
+    // Set empty values for fields not in reviews form
+    reviewData.customer = 'Other';
+    reviewData.reviewComments = '';
+    reviewData.natureOfReview = 'Neutral';
+    reviewData.happyCustomer = false;
+    reviewData.customerExpectation = 'Met';
+    
+    // Set all quality issues to false
+    reviewData.qualityIssues = {
+      openCorner: false,
+      looseThread: false,
+      thinFabric: false,
+      unravelingSeam: false,
+      unclear: false,
+      priceIssue: false,
+      shadeVariation: false,
+      lint: false,
+      shortQtyInPack: false,
+      improperHem: false,
+      poorQuality: false,
+      stain: false,
+      deliveryIssue: false,
+      absorbency: false,
+      wet: false,
+      hole: false
+    };
+    
+    const review = new Rating(reviewData);
+    await review.save();
+    
+    res.status(201).json({
+      success: true,
+      message: 'Review submitted successfully!',
+      data: review
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -33,12 +93,14 @@ router.get('/', async (req, res) => {
   try {
     const { 
       page = 1, 
-      limit = 20, 
+      limit = 50, 
       year, 
       month, 
       product, 
       minRating, 
       maxRating,
+      customer,
+      formType, // NEW: Filter by form type
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -49,10 +111,13 @@ router.get('/', async (req, res) => {
     if (year) query.year = year;
     if (month) query.month = month;
     if (product) query.productDescription = { $regex: product, $options: 'i' };
+    if (customer) query.customer = customer;
+    if (formType) query.formType = formType; // NEW: Filter by form type
+    
     if (minRating || maxRating) {
       query.overallRating = {};
-      if (minRating) query.overallRating.$gte = parseInt(minRating);
-      if (maxRating) query.overallRating.$lte = parseInt(maxRating);
+      if (minRating) query.overallRating.$gte = parseFloat(minRating);
+      if (maxRating) query.overallRating.$lte = parseFloat(maxRating);
     }
 
     const sortOptions = {};
@@ -74,6 +139,37 @@ router.get('/', async (req, res) => {
         total,
         pages: Math.ceil(total / parseInt(limit))
       }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get statistics by form type
+router.get('/stats/by-form-type', async (req, res) => {
+  try {
+    const stats = await Rating.aggregate([
+      {
+        $group: {
+          _id: '$formType',
+          count: { $sum: 1 },
+          avgRating: { $avg: '$overallRating' },
+          totalReviews: { $sum: '$ttlReviews' }
+        }
+      },
+      {
+        $project: {
+          formType: '$_id',
+          count: 1,
+          avgRating: { $round: ['$avgRating', 2] },
+          totalReviews: 1
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: stats
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
