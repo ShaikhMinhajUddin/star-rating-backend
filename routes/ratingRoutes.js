@@ -2,61 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Rating = require('../models/Rating');
 
-// Create a new rating entry (UNIFIED ENDPOINT for both forms)
-router.post('/', async (req, res) => {
-  try {
-    const ratingData = req.body;
-    
-    // Validate required fields for BOTH FORMS
-    const requiredFields = ['productDescription', 'item', 'comboColor', 'customer', 'overallRating', 'ttlReviews'];
-    for (const field of requiredFields) {
-      if (!ratingData[field]) {
-        return res.status(400).json({ error: `${field} is required` });
-      }
-    }
+// ================ IMPORTANT: Define specific routes BEFORE generic routes ================
 
-    // IMPORTANT: DON'T force formType to 'feedback'
-    // Instead, check if formType is provided in request
-    // If not provided, determine based on data
-    
-    if (!ratingData.formType) {
-      // Auto-detect form type based on data
-      const hasQualityIssues = ratingData.qualityIssues && 
-        Object.values(ratingData.qualityIssues).some(value => 
-          value === true || value === 'true' || value === 'True'
-        );
-      
-      const hasReviewDetails = ratingData.reviewComments || 
-                              ratingData.happyCustomer || 
-                              ratingData.customerExpectation ||
-                              (ratingData.natureOfReview && ratingData.natureOfReview !== 'Neutral');
-      
-      ratingData.formType = (hasQualityIssues || hasReviewDetails) ? 'feedback' : 'review';
-    }
-    
-    console.log('Saving rating with formType:', ratingData.formType);
-    console.log('Has quality issues:', ratingData.qualityIssues && Object.values(ratingData.qualityIssues).some(v => v === true || v === 'true'));
-    console.log('Has review details:', ratingData.reviewComments || ratingData.happyCustomer || ratingData.customerExpectation);
-    
-    const rating = new Rating(ratingData);
-    await rating.save();
-    
-    res.status(201).json({
-      success: true,
-      message: 'Rating submitted successfully!',
-      data: rating
-    });
-  } catch (error) {
-    console.error('Error saving rating:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error saving rating', 
-      error: error.message 
-    });
-  }
-});
-
-// Create a new review entry (Reviews Form) - OPTIONAL ENDPOINT
+// Create a new review entry (Reviews Form) - MUST come before /:id
 router.post('/reviews', async (req, res) => {
   try {
     const reviewData = req.body;
@@ -112,7 +60,94 @@ router.post('/reviews', async (req, res) => {
     });
   } catch (error) {
     console.error('Error saving review:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error saving review', 
+      error: error.message 
+    });
+  }
+});
+
+// Get statistics by form type - MUST come before /:id
+router.get('/stats/by-form-type', async (req, res) => {
+  try {
+    const stats = await Rating.aggregate([
+      {
+        $group: {
+          _id: '$formType',
+          count: { $sum: 1 },
+          avgRating: { $avg: '$overallRating' },
+          totalReviews: { $sum: '$ttlReviews' }
+        }
+      },
+      {
+        $project: {
+          formType: '$_id',
+          count: 1,
+          avgRating: { $round: ['$avgRating', 2] },
+          totalReviews: 1
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ================ MAIN ROUTES ================
+
+// Create a new rating entry (UNIFIED ENDPOINT for both forms)
+router.post('/', async (req, res) => {
+  try {
+    const ratingData = req.body;
+    
+    // Validate required fields for BOTH FORMS
+    const requiredFields = ['productDescription', 'item', 'comboColor', 'customer', 'overallRating', 'ttlReviews'];
+    for (const field of requiredFields) {
+      if (!ratingData[field]) {
+        return res.status(400).json({ error: `${field} is required` });
+      }
+    }
+
+    // Check if formType is provided in request
+    // If not provided, determine based on data
+    if (!ratingData.formType) {
+      // Auto-detect form type based on data
+      const hasQualityIssues = ratingData.qualityIssues && 
+        Object.values(ratingData.qualityIssues).some(value => 
+          value === true || value === 'true' || value === 'True'
+        );
+      
+      const hasReviewDetails = ratingData.reviewComments || 
+                              ratingData.happyCustomer || 
+                              ratingData.customerExpectation ||
+                              (ratingData.natureOfReview && ratingData.natureOfReview !== 'Neutral');
+      
+      ratingData.formType = (hasQualityIssues || hasReviewDetails) ? 'feedback' : 'review';
+    }
+    
+    console.log('Saving rating with formType:', ratingData.formType);
+    
+    const rating = new Rating(ratingData);
+    await rating.save();
+    
+    res.status(201).json({
+      success: true,
+      message: 'Rating submitted successfully!',
+      data: rating
+    });
+  } catch (error) {
+    console.error('Error saving rating:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error saving rating', 
+      error: error.message 
+    });
   }
 });
 
@@ -174,36 +209,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get statistics by form type
-router.get('/stats/by-form-type', async (req, res) => {
-  try {
-    const stats = await Rating.aggregate([
-      {
-        $group: {
-          _id: '$formType',
-          count: { $sum: 1 },
-          avgRating: { $avg: '$overallRating' },
-          totalReviews: { $sum: '$ttlReviews' }
-        }
-      },
-      {
-        $project: {
-          formType: '$_id',
-          count: 1,
-          avgRating: { $round: ['$avgRating', 2] },
-          totalReviews: 1
-        }
-      }
-    ]);
-
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// ================ SINGLE RATING ROUTES (must come LAST) ================
 
 // Get rating by ID
 router.get('/:id', async (req, res) => {
