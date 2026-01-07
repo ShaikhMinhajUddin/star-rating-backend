@@ -2,12 +2,12 @@ const express = require('express');
 const router = express.Router();
 const Rating = require('../models/Rating');
 
-// Create a new rating entry (Feedback Form)
+// Create a new rating entry (UNIFIED ENDPOINT for both forms)
 router.post('/', async (req, res) => {
   try {
     const ratingData = req.body;
     
-    // Validate required fields for FEEDBACK FORM
+    // Validate required fields for BOTH FORMS
     const requiredFields = ['productDescription', 'item', 'comboColor', 'customer', 'overallRating', 'ttlReviews'];
     for (const field of requiredFields) {
       if (!ratingData[field]) {
@@ -15,24 +15,49 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Set form type
-    ratingData.formType = 'feedback';
+    // IMPORTANT: DON'T force formType to 'feedback'
+    // Instead, check if formType is provided in request
+    // If not provided, determine based on data
+    
+    if (!ratingData.formType) {
+      // Auto-detect form type based on data
+      const hasQualityIssues = ratingData.qualityIssues && 
+        Object.values(ratingData.qualityIssues).some(value => 
+          value === true || value === 'true' || value === 'True'
+        );
+      
+      const hasReviewDetails = ratingData.reviewComments || 
+                              ratingData.happyCustomer || 
+                              ratingData.customerExpectation ||
+                              (ratingData.natureOfReview && ratingData.natureOfReview !== 'Neutral');
+      
+      ratingData.formType = (hasQualityIssues || hasReviewDetails) ? 'feedback' : 'review';
+    }
+    
+    console.log('Saving rating with formType:', ratingData.formType);
+    console.log('Has quality issues:', ratingData.qualityIssues && Object.values(ratingData.qualityIssues).some(v => v === true || v === 'true'));
+    console.log('Has review details:', ratingData.reviewComments || ratingData.happyCustomer || ratingData.customerExpectation);
     
     const rating = new Rating(ratingData);
     await rating.save();
     
     res.status(201).json({
       success: true,
-      message: 'Feedback submitted successfully!',
+      message: 'Rating submitted successfully!',
       data: rating
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error saving rating:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error saving rating', 
+      error: error.message 
+    });
   }
 });
 
-// Create a new review entry (Reviews Form)
-router.post('/reviews', async (req, res) => { // <-- Yeh line confirm karein
+// Create a new review entry (Reviews Form) - OPTIONAL ENDPOINT
+router.post('/reviews', async (req, res) => {
   try {
     const reviewData = req.body;
     
@@ -46,34 +71,36 @@ router.post('/reviews', async (req, res) => { // <-- Yeh line confirm karein
 
     // Set form type and auto-fill empty fields
     reviewData.formType = 'review';
-    reviewData.date = new Date(); // Auto-fill date
+    reviewData.date = new Date();
     
     // Set empty values for fields not in reviews form
-    reviewData.customer = 'Other';
-    reviewData.reviewComments = '';
-    reviewData.natureOfReview = 'Neutral';
-    reviewData.happyCustomer = false;
-    reviewData.customerExpectation = 'Met';
+    if (!reviewData.customer) reviewData.customer = 'Other';
+    if (!reviewData.reviewComments) reviewData.reviewComments = '';
+    if (!reviewData.natureOfReview) reviewData.natureOfReview = 'Neutral';
+    if (reviewData.happyCustomer === undefined) reviewData.happyCustomer = false;
+    if (!reviewData.customerExpectation) reviewData.customerExpectation = 'Met';
     
-    // Set all quality issues to false
-    reviewData.qualityIssues = {
-      openCorner: false,
-      looseThread: false,
-      thinFabric: false,
-      unravelingSeam: false,
-      unclear: false,
-      priceIssue: false,
-      shadeVariation: false,
-      lint: false,
-      shortQtyInPack: false,
-      improperHem: false,
-      poorQuality: false,
-      stain: false,
-      deliveryIssue: false,
-      absorbency: false,
-      wet: false,
-      hole: false
-    };
+    // Set all quality issues to false if not provided
+    if (!reviewData.qualityIssues) {
+      reviewData.qualityIssues = {
+        openCorner: false,
+        looseThread: false,
+        thinFabric: false,
+        unravelingSeam: false,
+        unclear: false,
+        priceIssue: false,
+        shadeVariation: false,
+        lint: false,
+        shortQtyInPack: false,
+        improperHem: false,
+        poorQuality: false,
+        stain: false,
+        deliveryIssue: false,
+        absorbency: false,
+        wet: false,
+        hole: false
+      };
+    }
     
     const review = new Rating(reviewData);
     await review.save();
@@ -84,6 +111,7 @@ router.post('/reviews', async (req, res) => { // <-- Yeh line confirm karein
       data: review
     });
   } catch (error) {
+    console.error('Error saving review:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -100,7 +128,7 @@ router.get('/', async (req, res) => {
       minRating, 
       maxRating,
       customer,
-      formType, // NEW: Filter by form type
+      formType,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -112,7 +140,7 @@ router.get('/', async (req, res) => {
     if (month) query.month = parseInt(month);
     if (product) query.productDescription = { $regex: product, $options: 'i' };
     if (customer) query.customer = customer;
-    if (formType) query.formType = formType; // NEW: Filter by form type
+    if (formType) query.formType = formType;
     
     if (minRating || maxRating) {
       query.overallRating = {};
@@ -145,7 +173,6 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // Get statistics by form type
 router.get('/stats/by-form-type', async (req, res) => {
