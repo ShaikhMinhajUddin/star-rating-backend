@@ -108,8 +108,8 @@ router.get('/', async (req, res) => {
     const query = {};
     
     // Apply filters
-    if (year) query.year = year;
-    if (month) query.month = month;
+    if (year) query.year = parseInt(year);
+    if (month) query.month = parseInt(month);
     if (product) query.productDescription = { $regex: product, $options: 'i' };
     if (customer) query.customer = customer;
     if (formType) query.formType = formType; // NEW: Filter by form type
@@ -141,9 +141,11 @@ router.get('/', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Error fetching ratings:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Get statistics by form type
 router.get('/stats/by-form-type', async (req, res) => {
