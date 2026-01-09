@@ -63,25 +63,189 @@ const ratingSchema = new mongoose.Schema({
 
 const Rating = mongoose.model('Rating', ratingSchema);
 
-// API Routes
+// ================ API ROUTES ================
+
+// ========= 1. FEEDBACK FORM ENDPOINT (Feedback Tab) =========
 app.post('/api/ratings', async (req, res) => {
   try {
-    const rating = new Rating(req.body);
+    console.log('📥 Received feedback submission (raw):', req.body);
+    
+    // Extract data
+    const formData = req.body.ratings || req.body;
+    const today = new Date();
+    
+    // Prepare feedback data
+    const feedbackData = {
+      year: today.getFullYear(),
+      month: today.getMonth() + 1,
+      date: today.getDate(),
+      productDescription: formData.productDescription || 'Unknown Product',
+      item: formData.item || 'Unknown Item',
+      comboColor: formData.comboColor || 'Unknown',
+      customer: formData.customer || 'Other',
+      star1: (formData.star1 || 0).toString(),
+      star2: (formData.star2 || 0).toString(),
+      star3: (formData.star3 || 0).toString(),
+      star4: (formData.star4 || 0).toString(),
+      star5: (formData.star5 || 0).toString(),
+      overallRating: (formData.overallRating || 0).toString(),
+      ttlReviews: (formData.ttlReviews || 1).toString(),
+      reviewComments: formData.reviewComments || '',
+      natureOfReview: formData.natureOfReview || 'Neutral',
+      happyCustomer: formData.happyCustomer || '',
+      customerExpectation: formData.customerExpectation || '',
+      openCorner: formData.openCorner || '',
+      looseThread: formData.looseThread || '',
+      thinFabric: formData.thinFabric || '',
+      unravelingSeam: formData.unravelingSeam || '',
+      unclear: formData.unclear || '',
+      priceIssue: formData.priceIssue || '',
+      shadeVariation: formData.shadeVariation || '',
+      lint: formData.lint || '',
+      shortQty: formData.shortQty || '',
+      improperHem: formData.improperHem || '',
+      poorQuality: formData.poorQuality || '',
+      stain: formData.stain || '',
+      deliveryIssue: formData.deliveryIssue || '',
+      absorbency: formData.absorbency || '',
+      wet: formData.wet || '',
+      hole: formData.hole || '',
+      createdAt: today
+    };
+
+    console.log('📝 Prepared feedback data:', feedbackData);
+
+    const rating = new Rating(feedbackData);
     await rating.save();
+    
+    console.log('✅ Feedback saved successfully. ID:', rating._id);
+    
     res.status(201).json({ 
       success: true, 
-      message: 'Rating saved successfully', 
+      message: 'Feedback submitted successfully!', 
       data: rating 
     });
   } catch (error) {
+    console.error('❌ Error saving feedback:', error.message);
     res.status(400).json({ 
       success: false, 
-      message: 'Error saving rating', 
+      message: 'Error saving feedback', 
       error: error.message 
     });
   }
 });
 
+// ========= 2. REVIEWS FORM ENDPOINT (Reviews Tab) - FIXED =========
+app.post('/api/ratings/reviews', async (req, res) => {
+  try {
+    console.log('📥 Received review submission (raw):', req.body);
+    console.log('🔍 Full request body:', JSON.stringify(req.body, null, 2));
+    
+    // Extract data - NO NESTING, just use req.body directly
+    const formData = req.body;
+    const today = new Date();
+    
+    // Prepare review data
+    const reviewData = {
+      year: today.getFullYear(),
+      month: today.getMonth() + 1,
+      date: today.getDate(),
+      productDescription: formData.productDescription || 'Unknown Product',
+      item: formData.item || 'Unknown Item',
+      comboColor: formData.comboColor || 'Unknown',
+      customer: formData.customer || 'Other',
+      star1: (formData.star1 || 0).toString(),
+      star2: (formData.star2 || 0).toString(),
+      star3: (formData.star3 || 0).toString(),
+      star4: (formData.star4 || 0).toString(),
+      star5: (formData.star5 || 0).toString(),
+      overallRating: (formData.overallRating || 0).toString(),
+      ttlReviews: (formData.ttlReviews || 1).toString(),
+      reviewComments: '',
+      natureOfReview: 'Neutral',
+      happyCustomer: '',
+      customerExpectation: '',
+      openCorner: '',
+      looseThread: '',
+      thinFabric: '',
+      unravelingSeam: '',
+      unclear: '',
+      priceIssue: '',
+      shadeVariation: '',
+      lint: '',
+      shortQty: '',
+      improperHem: '',
+      poorQuality: '',
+      stain: '',
+      deliveryIssue: '',
+      absorbency: '',
+      wet: '',
+      hole: '',
+      createdAt: today
+    };
+
+    console.log('📝 Prepared review data:', reviewData);
+
+    // Validate required fields
+    const requiredFields = [
+      'productDescription', 
+      'item', 
+      'comboColor', 
+      'customer', 
+      'overallRating', 
+      'ttlReviews'
+    ];
+    
+    const missingFields = [];
+    for (const field of requiredFields) {
+      if (!reviewData[field] || reviewData[field] === '') {
+        missingFields.push(field);
+      }
+    }
+    
+    if (missingFields.length > 0) {
+      console.warn(`⚠️ Missing required fields: ${missingFields.join(', ')}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: `Missing required fields: ${missingFields.join(', ')}`,
+        missingFields
+      });
+    }
+
+    const rating = new Rating(reviewData);
+    await rating.save();
+    
+    console.log('✅ Review saved successfully. ID:', rating._id);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Review submitted successfully!',
+      data: rating
+    });
+  } catch (error) {
+    console.error('❌ Error saving review:', error.message);
+    console.error('Full error stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error saving review', 
+      error: error.message
+    });
+  }
+});
+
+// ========= 3. DEBUG ENDPOINT =========
+app.post('/api/debug', async (req, res) => {
+  console.log('🔍 DEBUG - Request body:', req.body);
+  console.log('🔍 DEBUG - Headers:', req.headers);
+  res.json({
+    success: true,
+    received: req.body,
+    timestamp: new Date().toISOString(),
+    message: 'Debug endpoint working'
+  });
+});
+
+// ========= 4. GET ALL RATINGS =========
 app.get('/api/ratings', async (req, res) => {
   try {
     const { 
@@ -123,6 +287,7 @@ app.get('/api/ratings', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('❌ Error fetching ratings:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Error fetching ratings', 
@@ -131,6 +296,7 @@ app.get('/api/ratings', async (req, res) => {
   }
 });
 
+// ========= 5. GET SINGLE RATING BY ID =========
 app.get('/api/ratings/:id', async (req, res) => {
   try {
     const rating = await Rating.findById(req.params.id);
@@ -142,6 +308,7 @@ app.get('/api/ratings/:id', async (req, res) => {
     }
     res.json({ success: true, data: rating });
   } catch (error) {
+    console.error('❌ Error fetching rating:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Error fetching rating', 
@@ -150,6 +317,7 @@ app.get('/api/ratings/:id', async (req, res) => {
   }
 });
 
+// ========= 6. UPDATE RATING =========
 app.put('/api/ratings/:id', async (req, res) => {
   try {
     const rating = await Rating.findByIdAndUpdate(
@@ -169,6 +337,7 @@ app.put('/api/ratings/:id', async (req, res) => {
       data: rating 
     });
   } catch (error) {
+    console.error('❌ Error updating rating:', error);
     res.status(400).json({ 
       success: false, 
       message: 'Error updating rating', 
@@ -177,6 +346,7 @@ app.put('/api/ratings/:id', async (req, res) => {
   }
 });
 
+// ========= 7. DELETE RATING =========
 app.delete('/api/ratings/:id', async (req, res) => {
   try {
     const rating = await Rating.findByIdAndDelete(req.params.id);
@@ -191,6 +361,7 @@ app.delete('/api/ratings/:id', async (req, res) => {
       message: 'Rating deleted successfully' 
     });
   } catch (error) {
+    console.error('❌ Error deleting rating:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Error deleting rating', 
@@ -199,8 +370,7 @@ app.delete('/api/ratings/:id', async (req, res) => {
   }
 });
 
-
-// Get dashboard analytics
+// ========= 8. GET DASHBOARD ANALYTICS =========
 app.get('/api/analytics/dashboard', async (req, res) => {
   try {
     const query = {};
@@ -275,7 +445,7 @@ app.get('/api/analytics/dashboard', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Dashboard error:', error);
+    console.error('❌ Dashboard error:', error);
     res.status(500).json({ 
       error: 'Failed to fetch dashboard data',
       message: error.message 
@@ -283,7 +453,7 @@ app.get('/api/analytics/dashboard', async (req, res) => {
   }
 });
 
-// Get filter options
+// ========= 9. GET FILTER OPTIONS =========
 app.get('/api/ratings/filters', async (req, res) => {
   try {
     const customers = await Rating.distinct('customer');
@@ -294,7 +464,7 @@ app.get('/api/ratings/filters', async (req, res) => {
       products: products.filter(p => p).sort()
     });
   } catch (error) {
-    console.error('Filters error:', error);
+    console.error('❌ Filters error:', error);
     res.json({
       customers: ["Sam's Club", "Walmart"],
       products: []
@@ -302,194 +472,48 @@ app.get('/api/ratings/filters', async (req, res) => {
   }
 });
 
-
-// Analytics API
-app.get('/api/analytics/overall', async (req, res) => {
-  try {
-    const { year, month, product } = req.query;
-    
-    const query = {};
-    if (year) query.year = parseInt(year);
-    if (month) query.month = parseInt(month);
-    if (product) query.productDescription = { $regex: product, $options: 'i' };
-    
-    const ratings = await Rating.find(query);
-    
-    const totalRatings = ratings.length;
-    let totalRatingSum = 0;
-    let happyCustomers = 0;
-    
-    ratings.forEach(rating => {
-      totalRatingSum += parseFloat(rating.overallRating) || 0;
-      if (rating.happyCustomer?.toLowerCase() === 'yes') {
-        happyCustomers++;
-      }
-    });
-    
-    const averageRating = totalRatings > 0 ? totalRatingSum / totalRatings : 0;
-    const satisfactionRate = totalRatings > 0 ? (happyCustomers / totalRatings) * 100 : 0;
-    
-    res.json({
-      success: true,
-      data: {
-        overall: {
-          totalRatings,
-          averageRating: parseFloat(averageRating.toFixed(1)),
-          satisfactionRate: parseFloat(satisfactionRate.toFixed(1)),
-          totalReviews: totalRatings
-        }
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching analytics', 
-      error: error.message 
-    });
-  }
+// ========= HEALTH CHECK =========
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    endpoints: [
+      'POST /api/ratings - Feedback form',
+      'POST /api/ratings/reviews - Reviews form',
+      'GET /api/ratings - Get all ratings',
+      'GET /api/analytics/dashboard - Dashboard data',
+      'GET /api/health - Health check'
+    ]
+  });
 });
 
-app.get('/api/analytics/detailed', async (req, res) => {
-  try {
-    const { timeRange = 'monthly', startDate, endDate, product } = req.query;
-    
-    const query = {};
-    if (startDate && endDate) {
-      query.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
-    }
-    if (product) query.productDescription = { $regex: product, $options: 'i' };
-    
-    const ratings = await Rating.find(query);
-    
-    // Group by month for monthly trends
-    const monthlyTrends = {};
-    ratings.forEach(rating => {
-      const key = `${rating.year}-${rating.month}`;
-      if (!monthlyTrends[key]) {
-        monthlyTrends[key] = {
-          period: key,
-          totalReviews: 0,
-          totalRatingSum: 0,
-          count: 0
-        };
-      }
-      monthlyTrends[key].totalReviews++;
-      monthlyTrends[key].totalRatingSum += parseFloat(rating.overallRating) || 0;
-      monthlyTrends[key].count++;
-    });
-    
-    const monthlyTrendsArray = Object.values(monthlyTrends).map(item => ({
-      period: item.period,
-      totalReviews: item.totalReviews,
-      averageRating: item.count > 0 ? parseFloat((item.totalRatingSum / item.count).toFixed(1)) : 0
-    })).sort((a, b) => a.period.localeCompare(b.period));
-    
-    // Group by product for product performance
-    const productPerformance = {};
-    ratings.forEach(rating => {
-      const productName = rating.productDescription;
-      if (!productPerformance[productName]) {
-        productPerformance[productName] = {
-          product: productName,
-          totalReviews: 0,
-          totalRatings: 0,
-          totalRatingSum: 0,
-          happyCustomers: 0,
-          issueCount: 0
-        };
-      }
-      productPerformance[productName].totalReviews++;
-      productPerformance[productName].totalRatings += parseFloat(rating.ttlReviews) || 1;
-      productPerformance[productName].totalRatingSum += parseFloat(rating.overallRating) || 0;
-      
-      if (rating.happyCustomer?.toLowerCase() === 'yes') {
-        productPerformance[productName].happyCustomers++;
-      }
-      
-      // Count issues (non-empty quality issue fields)
-      const qualityFields = [
-        'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
-        'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
-        'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'
-      ];
-      
-      qualityFields.forEach(field => {
-        if (rating[field] && rating[field].trim() !== '') {
-          productPerformance[productName].issueCount++;
-        }
-      });
-    });
-    
-    const productPerformanceArray = Object.values(productPerformance).map(item => ({
-      product: item.product,
-      totalReviews: item.totalReviews,
-      totalRatings: item.totalRatings,
-      averageRating: item.totalReviews > 0 ? parseFloat((item.totalRatingSum / item.totalReviews).toFixed(1)) : 0,
-      satisfactionRate: item.totalReviews > 0 ? parseFloat(((item.happyCustomers / item.totalReviews) * 100).toFixed(1)) : 0,
-      happyCustomers: item.happyCustomers,
-      issueCount: item.issueCount,
-      trend: Math.floor(Math.random() * 21) - 10 // Random trend between -10% to +10%
-    })).sort((a, b) => b.averageRating - a.averageRating);
-    
-    // Customer satisfaction distribution
-    const customerSatisfaction = [
-      { name: 'Very Happy', value: 65 },
-      { name: 'Happy', value: 25 },
-      { name: 'Neutral', value: 7 },
-      { name: 'Unhappy', value: 3 }
-    ];
-    
-    // Issue distribution
-    const issueDistribution = [
-      { name: 'Loose Thread', value: 45 },
-      { name: 'Thin Fabric', value: 30 },
-      { name: 'Delivery Issue', value: 25 },
-      { name: 'Shade Variation', value: 20 },
-      { name: 'Stain', value: 15 },
-      { name: 'Open Corner', value: 12 },
-      { name: 'Poor Quality', value: 10 },
-      { name: 'Price Issue', value: 8 }
-    ];
-    
-    res.json({
-      success: true,
-      data: {
-        monthlyTrends: monthlyTrendsArray,
-        productPerformance: productPerformanceArray,
-        customerSatisfaction,
-        issueDistribution,
-        overall: {
-          totalRatings: ratings.length,
-          averageRating: monthlyTrendsArray.length > 0 ? 
-            parseFloat((monthlyTrendsArray.reduce((sum, item) => sum + item.averageRating, 0) / monthlyTrendsArray.length).toFixed(1)) : 0,
-          satisfactionRate: 94.5,
-          totalReviews: ratings.length,
-          totalIssues: ratings.reduce((sum, rating) => {
-            const qualityFields = [
-              'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
-              'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
-              'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'
-            ];
-            return sum + qualityFields.filter(field => rating[field] && rating[field].trim() !== '').length;
-          }, 0)
-        }
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching detailed analytics', 
-      error: error.message 
-    });
-  }
+// ========= 404 HANDLER =========
+app.use('*', (req, res) => {
+  console.log(`404: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({
+    success: false,
+    message: `Endpoint ${req.method} ${req.originalUrl} not found`
+  });
 });
 
-// Start server
+// ========= ERROR HANDLER =========
+app.use((err, req, res, next) => {
+  console.error('Server Error:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Internal Server Error',
+    error: err.message
+  });
+});
+
+// ========= START SERVER =========
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 MongoDB Atlas Connected: ${process.env.MONGODB_URI ? 'Yes' : 'No'}`);
+  console.log(`✅ Endpoints available:`);
+  console.log(`   POST /api/ratings`);
+  console.log(`   POST /api/ratings/reviews`);
+  console.log(`   GET  /api/health`);
 });
