@@ -68,13 +68,12 @@ const Rating = mongoose.model('Rating', ratingSchema);
 // ========= 1. FEEDBACK FORM ENDPOINT (Feedback Tab) =========
 app.post('/api/ratings', async (req, res) => {
   try {
-    console.log('📥 Received feedback submission (raw):', req.body);
+    console.log('📥 Received feedback submission:', req.body);
     
-    // Extract data
-    const formData = req.body.ratings || req.body;
+    const formData = req.body;
     const today = new Date();
     
-    // Prepare feedback data
+    // ✅ DIRECT FIELDS USE KAREIN - NESTED OBJECT NAHI
     const feedbackData = {
       year: today.getFullYear(),
       month: today.getMonth() + 1,
@@ -94,22 +93,25 @@ app.post('/api/ratings', async (req, res) => {
       natureOfReview: formData.natureOfReview || 'Neutral',
       happyCustomer: formData.happyCustomer || '',
       customerExpectation: formData.customerExpectation || '',
-      openCorner: formData.openCorner || '',
-      looseThread: formData.looseThread || '',
-      thinFabric: formData.thinFabric || '',
-      unravelingSeam: formData.unravelingSeam || '',
-      unclear: formData.unclear || '',
-      priceIssue: formData.priceIssue || '',
-      shadeVariation: formData.shadeVariation || '',
-      lint: formData.lint || '',
-      shortQty: formData.shortQty || '',
-      improperHem: formData.improperHem || '',
-      poorQuality: formData.poorQuality || '',
-      stain: formData.stain || '',
-      deliveryIssue: formData.deliveryIssue || '',
-      absorbency: formData.absorbency || '',
-      wet: formData.wet || '',
-      hole: formData.hole || '',
+      
+      // ✅ Quality Issues - Direct strings
+      openCorner: String(formData.openCorner || ''),
+      looseThread: String(formData.looseThread || ''),
+      thinFabric: String(formData.thinFabric || ''),
+      unravelingSeam: String(formData.unravelingSeam || ''),
+      unclear: String(formData.unclear || ''),
+      priceIssue: String(formData.priceIssue || ''),
+      shadeVariation: String(formData.shadeVariation || ''),
+      lint: String(formData.lint || ''),
+      shortQty: String(formData.shortQty || ''),
+      improperHem: String(formData.improperHem || ''),
+      poorQuality: String(formData.poorQuality || ''),
+      stain: String(formData.stain || ''),
+      deliveryIssue: String(formData.deliveryIssue || ''),
+      absorbency: String(formData.absorbency || ''),
+      wet: String(formData.wet || ''),
+      hole: String(formData.hole || ''),
+      
       createdAt: today
     };
 
