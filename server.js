@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
@@ -22,7 +24,9 @@ mongoose.connect(process.env.MONGODB_URI, {
 .then(() => console.log('✅ MongoDB Atlas Connected Successfully'))
 .catch((err) => console.error('❌ MongoDB Connection Error:', err));
 
-// Create Rating Schema
+// ========= SCHEMAS =========
+
+// Rating Schema
 const ratingSchema = new mongoose.Schema({
   year: { type: Number, required: true },
   month: { type: Number, required: true },
@@ -63,17 +67,184 @@ const ratingSchema = new mongoose.Schema({
 
 const Rating = mongoose.model('Rating', ratingSchema);
 
-// ================ API ROUTES ================
+// User Schema
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ['admin', 'sams', 'walmart'], required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+
+// ========= SEED INITIAL USERS =========
+const seedUsers = async () => {
+  try {
+    const userCount = await User.countDocuments();
+    
+    if (userCount === 0) {
+      const users = [
+        {
+          username: 'admin',
+          password: await bcrypt.hash('admin123', 10),
+          role: 'admin'
+        },
+        {
+          username: 'sams',
+          password: await bcrypt.hash('sams123', 10),
+          role: 'sams'
+        },
+        {
+          username: 'walmart',
+          password: await bcrypt.hash('walmart123', 10),
+          role: 'walmart'
+        }
+      ];
+
+      await User.insertMany(users);
+      console.log('✅ 3 fixed users created successfully');
+      console.log('📋 Login Credentials:');
+      console.log('   Admin: admin / admin123');
+      console.log('   Sam\'s Club: sams / sams123');
+      console.log('   Walmart: walmart / walmart123');
+    }
+  } catch (error) {
+    console.error('❌ Error seeding users:', error);
+  }
+};
+
+// Call seed function after DB connection
+mongoose.connection.once('open', () => {
+  seedUsers();
+});
+
+// ========= AUTHENTICATION MIDDLEWARE =========
+const authenticateToken = (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Access token required. Please login first.' 
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ratings-secret-key-2024');
+    req.user = decoded;
+    next();
+  } catch (error) {
+    console.error('❌ Token verification error:', error.message);
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Invalid or expired token. Please login again.' 
+    });
+  }
+};
+
+// ========= AUTH ROUTES =========
+
+// 1. LOGIN ENDPOINT
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    console.log('🔐 Login attempt for:', username);
+
+    // Find user
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid username or password' 
+      });
+    }
+
+    // Check password
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid username or password' 
+      });
+    }
+
+    // Create JWT token
+    const token = jwt.sign(
+      { 
+        userId: user._id, 
+        username: user.username, 
+        role: user.role 
+      },
+      process.env.JWT_SECRET || 'ratings-secret-key-2024',
+      { expiresIn: '24h' }
+    );
+
+    console.log('✅ Login successful for:', username, 'Role:', user.role);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during login' 
+    });
+  }
+});
+
+// 2. VALIDATE TOKEN ENDPOINT
+app.get('/api/auth/validate', authenticateToken, (req, res) => {
+  res.json({
+    success: true,
+    user: req.user
+  });
+});
+
+// 3. LOGOUT ENDPOINT
+app.post('/api/auth/logout', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+});
+
+// ========= PROTECTED ROUTES =========
 
 // ========= 1. FEEDBACK FORM ENDPOINT (Feedback Tab) =========
-app.post('/api/ratings', async (req, res) => {
+app.post('/api/ratings', authenticateToken, async (req, res) => {
   try {
-    console.log('📥 Received feedback submission:', req.body);
+    console.log('📥 Received feedback submission from:', req.user.username);
     
     const formData = req.body;
+    const userRole = req.user.role;
+    
+    // Role-based validation
+    if (userRole === 'sams' && formData.customer !== "Sam's Club") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Sam\'s Club users can only submit data for Sam\'s Club' 
+      });
+    }
+    
+    if (userRole === 'walmart' && formData.customer !== "Walmart") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Walmart users can only submit data for Walmart' 
+      });
+    }
+    
     const today = new Date();
     
-    // ✅ DIRECT FIELDS USE KAREIN - NESTED OBJECT NAHI
     const feedbackData = {
       year: today.getFullYear(),
       month: today.getMonth() + 1,
@@ -93,8 +264,6 @@ app.post('/api/ratings', async (req, res) => {
       natureOfReview: formData.natureOfReview || 'Neutral',
       happyCustomer: formData.happyCustomer || '',
       customerExpectation: formData.customerExpectation || '',
-      
-      // ✅ Quality Issues - Direct strings
       openCorner: String(formData.openCorner || ''),
       looseThread: String(formData.looseThread || ''),
       thinFabric: String(formData.thinFabric || ''),
@@ -111,11 +280,10 @@ app.post('/api/ratings', async (req, res) => {
       absorbency: String(formData.absorbency || ''),
       wet: String(formData.wet || ''),
       hole: String(formData.hole || ''),
-      
       createdAt: today
     };
 
-    console.log('📝 Prepared feedback data:', feedbackData);
+    console.log('📝 Prepared feedback data for:', formData.customer);
 
     const rating = new Rating(feedbackData);
     await rating.save();
@@ -137,17 +305,31 @@ app.post('/api/ratings', async (req, res) => {
   }
 });
 
-// ========= 2. REVIEWS FORM ENDPOINT (Reviews Tab) - FIXED =========
-app.post('/api/ratings/reviews', async (req, res) => {
+// ========= 2. REVIEWS FORM ENDPOINT (Reviews Tab) =========
+app.post('/api/ratings/reviews', authenticateToken, async (req, res) => {
   try {
-    console.log('📥 Received review submission (raw):', req.body);
-    console.log('🔍 Full request body:', JSON.stringify(req.body, null, 2));
+    console.log('📥 Received review submission from:', req.user.username);
     
-    // Extract data - NO NESTING, just use req.body directly
     const formData = req.body;
+    const userRole = req.user.role;
+    
+    // Role-based validation
+    if (userRole === 'sams' && formData.customer !== "Sam's Club") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Sam\'s Club users can only submit data for Sam\'s Club' 
+      });
+    }
+    
+    if (userRole === 'walmart' && formData.customer !== "Walmart") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Walmart users can only submit data for Walmart' 
+      });
+    }
+    
     const today = new Date();
     
-    // Prepare review data
     const reviewData = {
       year: today.getFullYear(),
       month: today.getMonth() + 1,
@@ -186,7 +368,7 @@ app.post('/api/ratings/reviews', async (req, res) => {
       createdAt: today
     };
 
-    console.log('📝 Prepared review data:', reviewData);
+    console.log('📝 Prepared review data for:', formData.customer);
 
     // Validate required fields
     const requiredFields = [
@@ -226,7 +408,6 @@ app.post('/api/ratings/reviews', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error saving review:', error.message);
-    console.error('Full error stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       message: 'Error saving review', 
@@ -235,21 +416,10 @@ app.post('/api/ratings/reviews', async (req, res) => {
   }
 });
 
-// ========= 3. DEBUG ENDPOINT =========
-app.post('/api/debug', async (req, res) => {
-  console.log('🔍 DEBUG - Request body:', req.body);
-  console.log('🔍 DEBUG - Headers:', req.headers);
-  res.json({
-    success: true,
-    received: req.body,
-    timestamp: new Date().toISOString(),
-    message: 'Debug endpoint working'
-  });
-});
-
-// ========= 4. GET ALL RATINGS =========
-app.get('/api/ratings', async (req, res) => {
+// ========= 3. GET ALL RATINGS (with role-based filtering) =========
+app.get('/api/ratings', authenticateToken, async (req, res) => {
   try {
+    const userRole = req.user.role;
     const { 
       page = 1, 
       limit = 20, 
@@ -260,8 +430,17 @@ app.get('/api/ratings', async (req, res) => {
       maxRating 
     } = req.query;
     
+    // Build query with role-based filter
     const query = {};
     
+    // Role-based customer filter
+    if (userRole === 'sams') {
+      query.customer = "Sam's Club";
+    } else if (userRole === 'walmart') {
+      query.customer = "Walmart";
+    }
+    
+    // Apply other filters
     if (year) query.year = year;
     if (month) query.month = month;
     if (product) query.productDescription = { $regex: product, $options: 'i' };
@@ -270,6 +449,8 @@ app.get('/api/ratings', async (req, res) => {
       if (minRating) query.overallRating.$gte = minRating;
       if (maxRating) query.overallRating.$lte = maxRating;
     }
+    
+    console.log(`📋 Ratings request - User: ${req.user.username}, Role: ${userRole}, Query:`, query);
     
     const ratings = await Rating.find(query)
       .sort({ createdAt: -1 })
@@ -281,6 +462,7 @@ app.get('/api/ratings', async (req, res) => {
     res.json({
       success: true,
       data: ratings,
+      userRole: userRole,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -298,9 +480,11 @@ app.get('/api/ratings', async (req, res) => {
   }
 });
 
-// ========= 5. GET SINGLE RATING BY ID =========
-app.get('/api/ratings/:id', async (req, res) => {
+// ========= 4. GET SINGLE RATING BY ID (with role check) =========
+app.get('/api/ratings/:id', authenticateToken, async (req, res) => {
   try {
+    const userRole = req.user.role;
+    
     const rating = await Rating.findById(req.params.id);
     if (!rating) {
       return res.status(404).json({ 
@@ -308,7 +492,27 @@ app.get('/api/ratings/:id', async (req, res) => {
         message: 'Rating not found' 
       });
     }
-    res.json({ success: true, data: rating });
+    
+    // Role-based access check
+    if (userRole === 'sams' && rating.customer !== "Sam's Club") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only view Sam\'s Club data.' 
+      });
+    }
+    
+    if (userRole === 'walmart' && rating.customer !== "Walmart") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only view Walmart data.' 
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      data: rating,
+      userRole: userRole 
+    });
   } catch (error) {
     console.error('❌ Error fetching rating:', error);
     res.status(500).json({ 
@@ -319,20 +523,41 @@ app.get('/api/ratings/:id', async (req, res) => {
   }
 });
 
-// ========= 6. UPDATE RATING =========
-app.put('/api/ratings/:id', async (req, res) => {
+// ========= 5. UPDATE RATING (with role check) =========
+app.put('/api/ratings/:id', authenticateToken, async (req, res) => {
   try {
-    const rating = await Rating.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    if (!rating) {
+    const userRole = req.user.role;
+    
+    // First check if rating exists and user has access
+    const existingRating = await Rating.findById(req.params.id);
+    if (!existingRating) {
       return res.status(404).json({ 
         success: false, 
         message: 'Rating not found' 
       });
     }
+    
+    // Role-based access check
+    if (userRole === 'sams' && existingRating.customer !== "Sam's Club") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only update Sam\'s Club data.' 
+      });
+    }
+    
+    if (userRole === 'walmart' && existingRating.customer !== "Walmart") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only update Walmart data.' 
+      });
+    }
+    
+    const rating = await Rating.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    
     res.json({ 
       success: true, 
       message: 'Rating updated successfully', 
@@ -348,16 +573,37 @@ app.put('/api/ratings/:id', async (req, res) => {
   }
 });
 
-// ========= 7. DELETE RATING =========
-app.delete('/api/ratings/:id', async (req, res) => {
+// ========= 6. DELETE RATING (with role check) =========
+app.delete('/api/ratings/:id', authenticateToken, async (req, res) => {
   try {
-    const rating = await Rating.findByIdAndDelete(req.params.id);
-    if (!rating) {
+    const userRole = req.user.role;
+    
+    // First check if rating exists and user has access
+    const existingRating = await Rating.findById(req.params.id);
+    if (!existingRating) {
       return res.status(404).json({ 
         success: false, 
         message: 'Rating not found' 
       });
     }
+    
+    // Role-based access check
+    if (userRole === 'sams' && existingRating.customer !== "Sam's Club") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only delete Sam\'s Club data.' 
+      });
+    }
+    
+    if (userRole === 'walmart' && existingRating.customer !== "Walmart") {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. You can only delete Walmart data.' 
+      });
+    }
+    
+    const rating = await Rating.findByIdAndDelete(req.params.id);
+    
     res.json({ 
       success: true, 
       message: 'Rating deleted successfully' 
@@ -372,21 +618,35 @@ app.delete('/api/ratings/:id', async (req, res) => {
   }
 });
 
-// ========= 8. GET DASHBOARD ANALYTICS =========
-// ========= 8. GET DASHBOARD ANALYTICS =========
-app.get('/api/analytics/dashboard', async (req, res) => {
+// ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering) =========
+app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   try {
+    const userRole = req.user.role;
     const { dashboardType = 'feedback', ...filters } = req.query;
-    const query = {};
     
-    // Apply filters
+    // Build query with role-based filter
+    let query = {};
+    
+    // Apply role-based customer filter
+    if (userRole === 'sams') {
+      query.customer = "Sam's Club";
+    } else if (userRole === 'walmart') {
+      query.customer = "Walmart";
+    }
+    // Admin - no customer filter (sab dikhega)
+    
+    // Apply other filters
     if (filters.year) query.year = parseInt(filters.year);
     if (filters.month) query.month = parseInt(filters.month);
-    if (filters.customer) query.customer = filters.customer;
     if (filters.product) query.productDescription = { $regex: filters.product, $options: 'i' };
+    if (filters.customer && userRole === 'admin') {
+      query.customer = filters.customer; // Admin can filter by any customer
+    }
     if (filters.minRating) {
       query.overallRating = { $gte: parseFloat(filters.minRating) };
     }
+
+    console.log(`📊 Dashboard request - User: ${req.user.username}, Role: ${userRole}, Query:`, query);
 
     const ratings = await Rating.find(query);
     
@@ -451,7 +711,6 @@ app.get('/api/analytics/dashboard', async (req, res) => {
     if (dashboardType === 'feedback') {
       const issuesMap = {};
       ratings.forEach(r => {
-        // Check each quality field
         const qualityFields = [
           'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
           'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
@@ -492,7 +751,6 @@ app.get('/api/analytics/dashboard', async (req, res) => {
     // Happy Customer Data (for feedback dashboard)
     const happyCustomerData = [];
     if (dashboardType === 'feedback') {
-      // Group by month for trend
       const monthGroups = {};
       ratings.forEach(r => {
         const month = r.month;
@@ -613,14 +871,16 @@ app.get('/api/analytics/dashboard', async (req, res) => {
       averageRating: p.count > 0 ? parseFloat((p.totalRating / p.count).toFixed(2)) : 0
     })).sort((a, b) => {
       if (dashboardType === 'feedback') {
-        return a.qualityIssues - b.qualityIssues; // Sort by fewest issues for feedback
+        return a.qualityIssues - b.qualityIssues;
       } else {
-        return b.averageRating - a.averageRating; // Sort by highest rating for reviews
+        return b.averageRating - a.averageRating;
       }
     }).slice(0, 10));
 
-    // Send response based on dashboard type
+    // Send response
     const response = {
+      success: true,
+      userRole: userRole,
       overall: {
         totalRatings,
         averageRating: parseFloat(averageRating.toFixed(2)),
@@ -648,38 +908,69 @@ app.get('/api/analytics/dashboard', async (req, res) => {
   } catch (error) {
     console.error('❌ Dashboard error:', error);
     res.status(500).json({ 
+      success: false,
       error: 'Failed to fetch dashboard data',
       message: error.message 
     });
   }
 });
 
-// ========= 9. GET FILTER OPTIONS =========
-app.get('/api/ratings/filters', async (req, res) => {
+// ========= 8. GET FILTER OPTIONS (with role-based filtering) =========
+app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
-    const customers = await Rating.distinct('customer');
-    const products = await Rating.distinct('productDescription');
+    const userRole = req.user.role;
+    
+    let customerQuery = {};
+    
+    // Apply role-based filter
+    if (userRole === 'sams') {
+      customerQuery.customer = "Sam's Club";
+    } else if (userRole === 'walmart') {
+      customerQuery.customer = "Walmart";
+    }
+    
+    const customers = await Rating.distinct('customer', customerQuery);
+    const products = await Rating.distinct('productDescription', customerQuery);
     
     res.json({
+      success: true,
       customers: customers.filter(c => c).sort(),
-      products: products.filter(p => p).sort()
+      products: products.filter(p => p).sort(),
+      userRole: userRole
     });
   } catch (error) {
     console.error('❌ Filters error:', error);
     res.json({
-      customers: ["Sam's Club", "Walmart"],
-      products: []
+      success: true,
+      customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
+                userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
+      products: [],
+      userRole: userRole
     });
   }
 });
 
-// ========= HEALTH CHECK =========
+// ========= 9. DEBUG ENDPOINT (protected) =========
+app.post('/api/debug', authenticateToken, async (req, res) => {
+  console.log('🔍 DEBUG - User:', req.user.username, 'Role:', req.user.role);
+  console.log('🔍 DEBUG - Request body:', req.body);
+  res.json({
+    success: true,
+    user: req.user,
+    received: req.body,
+    timestamp: new Date().toISOString(),
+    message: 'Debug endpoint working'
+  });
+});
+
+// ========= 10. HEALTH CHECK (public) =========
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString(),
     endpoints: [
+      'POST /api/auth/login - Login',
       'POST /api/ratings - Feedback form',
       'POST /api/ratings/reviews - Reviews form',
       'GET /api/ratings - Get all ratings',
@@ -713,8 +1004,9 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 MongoDB Atlas Connected: ${process.env.MONGODB_URI ? 'Yes' : 'No'}`);
-  console.log(`✅ Endpoints available:`);
-  console.log(`   POST /api/ratings`);
-  console.log(`   POST /api/ratings/reviews`);
-  console.log(`   GET  /api/health`);
+  console.log(`✅ Authentication System Active`);
+  console.log(`📋 Fixed Users Created:`);
+  console.log(`   Admin: admin / admin123`);
+  console.log(`   Sam's Club: sams / sams123`);
+  console.log(`   Walmart: walmart / walmart123`);
 });
