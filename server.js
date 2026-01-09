@@ -373,20 +373,29 @@ app.delete('/api/ratings/:id', async (req, res) => {
 });
 
 // ========= 8. GET DASHBOARD ANALYTICS =========
+// ========= 8. GET DASHBOARD ANALYTICS =========
 app.get('/api/analytics/dashboard', async (req, res) => {
   try {
+    const { dashboardType = 'feedback', ...filters } = req.query;
     const query = {};
     
-    if (req.query.year) query.year = parseInt(req.query.year);
-    if (req.query.month) query.month = parseInt(req.query.month);
-    if (req.query.customer) query.customer = req.query.customer;
-    
+    // Apply filters
+    if (filters.year) query.year = parseInt(filters.year);
+    if (filters.month) query.month = parseInt(filters.month);
+    if (filters.customer) query.customer = filters.customer;
+    if (filters.product) query.productDescription = { $regex: filters.product, $options: 'i' };
+    if (filters.minRating) {
+      query.overallRating = { $gte: parseFloat(filters.minRating) };
+    }
+
     const ratings = await Rating.find(query);
     
     // Basic calculations
     const totalRatings = ratings.length;
     let totalReviews = 0;
     let totalRating = 0;
+    let happyCustomers = 0;
+    let metExpectations = 0;
     
     ratings.forEach(rating => {
       const star1 = parseInt(rating.star1) || 0;
@@ -402,17 +411,28 @@ app.get('/api/analytics/dashboard', async (req, res) => {
         const weighted = (star1 * 1) + (star2 * 2) + (star3 * 3) + (star4 * 4) + (star5 * 5);
         totalRating += weighted / sum;
       }
+      
+      // For feedback analytics
+      if (rating.happyCustomer === 'true' || rating.happyCustomer === true) {
+        happyCustomers++;
+      }
+      
+      if (rating.customerExpectation === 'Met') {
+        metExpectations++;
+      }
     });
     
     const averageRating = totalRatings > 0 ? totalRating / totalRatings : 0;
-    
+    const happyCustomerRate = totalRatings > 0 ? (happyCustomers / totalRatings) * 100 : 0;
+    const expectationMetRate = totalRatings > 0 ? (metExpectations / totalRatings) * 100 : 0;
+
     // Star distribution
     const star1Total = ratings.reduce((sum, r) => sum + (parseInt(r.star1) || 0), 0);
     const star2Total = ratings.reduce((sum, r) => sum + (parseInt(r.star2) || 0), 0);
     const star3Total = ratings.reduce((sum, r) => sum + (parseInt(r.star3) || 0), 0);
     const star4Total = ratings.reduce((sum, r) => sum + (parseInt(r.star4) || 0), 0);
     const star5Total = ratings.reduce((sum, r) => sum + (parseInt(r.star5) || 0), 0);
-    
+
     // Customer distribution
     const customerCounts = {};
     ratings.forEach(r => {
@@ -425,15 +445,189 @@ app.get('/api/analytics/dashboard', async (req, res) => {
       value,
       color: name === "Sam's Club" ? '#87A96B' : name === "Walmart" ? '#D4AF37' : '#800020'
     }));
-    
-    // Send response
-    res.json({
+
+    // Quality Issues Analysis (for feedback dashboard)
+    const qualityIssues = [];
+    if (dashboardType === 'feedback') {
+      const issuesMap = {};
+      ratings.forEach(r => {
+        // Check each quality field
+        const qualityFields = [
+          'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
+          'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
+          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'
+        ];
+        
+        qualityFields.forEach(field => {
+          if (r[field] && r[field].toString().trim() !== '') {
+            const fieldName = field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+            issuesMap[fieldName] = (issuesMap[fieldName] || 0) + 1;
+          }
+        });
+      });
+      
+      qualityIssues.push(...Object.entries(issuesMap).map(([name, value]) => ({
+        name,
+        value,
+        color: value > 10 ? '#800020' : value > 5 ? '#D4AF37' : '#87A96B'
+      })));
+    }
+
+    // Nature of Review Data (for feedback dashboard)
+    const natureOfReviewData = [];
+    if (dashboardType === 'feedback') {
+      const natureCounts = {};
+      ratings.forEach(r => {
+        const nature = r.natureOfReview || 'Neutral';
+        natureCounts[nature] = (natureCounts[nature] || 0) + 1;
+      });
+      
+      natureOfReviewData.push(...Object.entries(natureCounts).map(([name, value], index) => ({
+        name,
+        value,
+        color: index % 3 === 0 ? '#800020' : index % 3 === 1 ? '#D4AF37' : '#87A96B'
+      })));
+    }
+
+    // Happy Customer Data (for feedback dashboard)
+    const happyCustomerData = [];
+    if (dashboardType === 'feedback') {
+      // Group by month for trend
+      const monthGroups = {};
+      ratings.forEach(r => {
+        const month = r.month;
+        if (!monthGroups[month]) monthGroups[month] = { happy: 0, total: 0 };
+        monthGroups[month].total++;
+        if (r.happyCustomer === 'true' || r.happyCustomer === true) {
+          monthGroups[month].happy++;
+        }
+      });
+      
+      Object.entries(monthGroups).forEach(([month, data]) => {
+        happyCustomerData.push({
+          period: `Month ${month}`,
+          satisfaction: data.total > 0 ? (data.happy / data.total * 100) : 0
+        });
+      });
+    }
+
+    // Expectation Data (for feedback dashboard)
+    const expectationData = [];
+    if (dashboardType === 'feedback') {
+      const expectationCounts = {};
+      ratings.forEach(r => {
+        const expectation = r.customerExpectation || 'Unknown';
+        expectationCounts[expectation] = (expectationCounts[expectation] || 0) + 1;
+      });
+      
+      const total = ratings.length;
+      Object.entries(expectationCounts).forEach(([name, count]) => {
+        expectationData.push({
+          name,
+          value: total > 0 ? (count / total * 100) : 0
+        });
+      });
+    }
+
+    // Monthly Trends (for reviews dashboard)
+    const monthlyTrends = [];
+    if (dashboardType === 'reviews') {
+      const monthData = {};
+      ratings.forEach(r => {
+        const month = r.month;
+        if (!monthData[month]) monthData[month] = { totalRating: 0, count: 0, reviews: 0 };
+        
+        const star1 = parseInt(r.star1) || 0;
+        const star2 = parseInt(r.star2) || 0;
+        const star3 = parseInt(r.star3) || 0;
+        const star4 = parseInt(r.star4) || 0;
+        const star5 = parseInt(r.star5) || 0;
+        
+        const sum = star1 + star2 + star3 + star4 + star5;
+        monthData[month].reviews += sum;
+        
+        if (sum > 0) {
+          const weighted = (star1 * 1) + (star2 * 2) + (star3 * 3) + (star4 * 4) + (star5 * 5);
+          monthData[month].totalRating += weighted / sum;
+          monthData[month].count++;
+        }
+      });
+      
+      Object.entries(monthData).forEach(([month, data]) => {
+        monthlyTrends.push({
+          month: `M-${month}`,
+          averageRating: data.count > 0 ? parseFloat((data.totalRating / data.count).toFixed(2)) : 0,
+          reviews: data.reviews
+        });
+      });
+    }
+
+    // Top Products
+    const topProducts = [];
+    const productData = {};
+    ratings.forEach(r => {
+      const product = r.productDescription || 'Unknown';
+      if (!productData[product]) {
+        productData[product] = {
+          product,
+          totalReviews: 0,
+          totalRating: 0,
+          count: 0,
+          qualityIssues: 0,
+          customer: r.customer || 'Unknown'
+        };
+      }
+      
+      const star1 = parseInt(r.star1) || 0;
+      const star2 = parseInt(r.star2) || 0;
+      const star3 = parseInt(r.star3) || 0;
+      const star4 = parseInt(r.star4) || 0;
+      const star5 = parseInt(r.star5) || 0;
+      
+      const sum = star1 + star2 + star3 + star4 + star5;
+      productData[product].totalReviews += sum;
+      
+      if (sum > 0) {
+        const weighted = (star1 * 1) + (star2 * 2) + (star3 * 3) + (star4 * 4) + (star5 * 5);
+        productData[product].totalRating += weighted / sum;
+        productData[product].count++;
+      }
+      
+      // Count quality issues
+      if (dashboardType === 'feedback') {
+        const qualityFields = ['openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
+          'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
+          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'];
+        
+        qualityFields.forEach(field => {
+          if (r[field] && r[field].toString().trim() !== '') {
+            productData[product].qualityIssues++;
+          }
+        });
+      }
+    });
+
+    // Convert to array and calculate averages
+    topProducts.push(...Object.values(productData).map(p => ({
+      ...p,
+      averageRating: p.count > 0 ? parseFloat((p.totalRating / p.count).toFixed(2)) : 0
+    })).sort((a, b) => {
+      if (dashboardType === 'feedback') {
+        return a.qualityIssues - b.qualityIssues; // Sort by fewest issues for feedback
+      } else {
+        return b.averageRating - a.averageRating; // Sort by highest rating for reviews
+      }
+    }).slice(0, 10));
+
+    // Send response based on dashboard type
+    const response = {
       overall: {
         totalRatings,
         averageRating: parseFloat(averageRating.toFixed(2)),
         totalReviews,
-        happyCustomerRate: 0,
-        qualityIssues: 0
+        happyCustomerRate: parseFloat(happyCustomerRate.toFixed(2)),
+        expectationMetRate: parseFloat(expectationMetRate.toFixed(2)),
+        qualityIssues: qualityIssues.reduce((sum, issue) => sum + issue.value, 0)
       },
       star1Total,
       star2Total,
@@ -441,10 +635,15 @@ app.get('/api/analytics/dashboard', async (req, res) => {
       star4Total,
       star5Total,
       customerDistribution,
-      monthlyTrends: [],
-      qualityIssues: [],
-      topProducts: []
-    });
+      monthlyTrends,
+      qualityIssues,
+      topProducts,
+      natureOfReviewData,
+      happyCustomerData,
+      expectationData
+    };
+
+    res.json(response);
     
   } catch (error) {
     console.error('❌ Dashboard error:', error);
