@@ -958,7 +958,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// ========= 8. GET FILTER OPTIONS (with role-based filtering) =========
+// ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
 app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
@@ -972,29 +972,40 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
       customerQuery.customer = "Walmart";
     }
     
-    const customers = await Rating.distinct('customer', customerQuery);
-    const products = await Rating.distinct('productDescription', customerQuery);
-    const combos = await Rating.distinct('combo', customerQuery);
-    const colors = await Rating.distinct('color', customerQuery);
+    try {
+      const customers = await Rating.distinct('customer', customerQuery);
+      const products = await Rating.distinct('productDescription', customerQuery);
+      const combos = await Rating.distinct('combo', customerQuery);
+      const colors = await Rating.distinct('color', customerQuery);
+      
+      res.json({
+        success: true,
+        customers: customers.filter(c => c && c.toString().trim() !== '').sort(),
+        products: products.filter(p => p && p.toString().trim() !== '').sort(),
+        combos: combos.filter(c => c && c.toString().trim() !== '').sort(),
+        colors: colors.filter(c => c && c.toString().trim() !== '').sort(),
+        userRole: userRole
+      });
+    } catch (dbError) {
+      console.error('Database query error in filters:', dbError);
+      // If distinct queries fail, provide default values
+      res.json({
+        success: true,
+        customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
+                  userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
+        products: [],
+        combos: [],
+        colors: [],
+        userRole: userRole
+      });
+    }
     
-    res.json({
-      success: true,
-      customers: customers.filter(c => c).sort(),
-      products: products.filter(p => p).sort(),
-      combos: combos.filter(c => c).sort(),
-      colors: colors.filter(c => c).sort(),
-      userRole: userRole
-    });
   } catch (error) {
-    console.error('❌ Filters error:', error);
-    res.json({
-      success: true,
-      customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
-                userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
-      products: [],
-      combos: [],
-      colors: [],
-      userRole: userRole
+    console.error('❌ Filters endpoint error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch filter options',
+      message: error.message 
     });
   }
 });
