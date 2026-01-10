@@ -26,14 +26,15 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // ========= SCHEMAS =========
 
-// Rating Schema
+// Rating Schema - UPDATED with new fields and separate combo & color
 const ratingSchema = new mongoose.Schema({
   year: { type: Number, required: true },
   month: { type: Number, required: true },
   date: { type: Number, required: true },
   productDescription: { type: String, required: true },
   item: { type: String, required: true },
-  comboColor: { type: String, required: true },
+  combo: { type: String, default: '' },      // ALAG FIELD
+  color: { type: String, default: '' },      // ALAG FIELD
   customer: { type: String, required: true },
   star1: { type: String, default: '0' },
   star2: { type: String, default: '0' },
@@ -46,6 +47,8 @@ const ratingSchema = new mongoose.Schema({
   natureOfReview: { type: String, default: 'Neutral' },
   happyCustomer: { type: String, default: '' },
   customerExpectation: { type: String, default: '' },
+  
+  // ✅ ALL FIELDS FROM FRONTEND INCLUDING NEW ONES
   openCorner: { type: String, default: '' },
   looseThread: { type: String, default: '' },
   thinFabric: { type: String, default: '' },
@@ -62,6 +65,16 @@ const ratingSchema = new mongoose.Schema({
   absorbency: { type: String, default: '' },
   wet: { type: String, default: '' },
   hole: { type: String, default: '' },
+  
+  // ✅ NEW FIELDS ADDED FROM FRONTEND FORMS
+  harshFeel: { type: String, default: '' },
+  skrinkage: { type: String, default: '' },
+  pilling: { type: String, default: '' },
+  colorBleeding: { type: String, default: '' },
+  outOfStock: { type: String, default: '' },
+  badSmall: { type: String, default: '' },
+  shapeOut: { type: String, default: '' },
+  
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -251,7 +264,8 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       date: today.getDate(),
       productDescription: formData.productDescription || 'Unknown Product',
       item: formData.item || 'Unknown Item',
-      comboColor: formData.comboColor || 'Unknown',
+      combo: formData.combo || '',      // Alag field
+      color: formData.color || '',      // Alag field
       customer: formData.customer || 'Other',
       star1: (formData.star1 || 0).toString(),
       star2: (formData.star2 || 0).toString(),
@@ -264,6 +278,8 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       natureOfReview: formData.natureOfReview || 'Neutral',
       happyCustomer: formData.happyCustomer || '',
       customerExpectation: formData.customerExpectation || '',
+      
+      // ✅ ALL FIELDS INCLUDING NEW ONES
       openCorner: String(formData.openCorner || ''),
       looseThread: String(formData.looseThread || ''),
       thinFabric: String(formData.thinFabric || ''),
@@ -280,6 +296,16 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       absorbency: String(formData.absorbency || ''),
       wet: String(formData.wet || ''),
       hole: String(formData.hole || ''),
+      
+      // ✅ NEW FIELDS
+      harshFeel: String(formData.harshFeel || ''),
+      skrinkage: String(formData.skrinkage || ''),
+      pilling: String(formData.pilling || ''),
+      colorBleeding: String(formData.colorBleeding || ''),
+      outOfStock: String(formData.outOfStock || ''),
+      badSmall: String(formData.badSmall || ''),
+      shapeOut: String(formData.shapeOut || ''),
+      
       createdAt: today
     };
 
@@ -336,7 +362,8 @@ app.post('/api/ratings/reviews', authenticateToken, async (req, res) => {
       date: today.getDate(),
       productDescription: formData.productDescription || 'Unknown Product',
       item: formData.item || 'Unknown Item',
-      comboColor: formData.comboColor || 'Unknown',
+      combo: formData.combo || '',      // Alag field
+      color: formData.color || '',      // Alag field
       customer: formData.customer || 'Other',
       star1: (formData.star1 || 0).toString(),
       star2: (formData.star2 || 0).toString(),
@@ -365,6 +392,13 @@ app.post('/api/ratings/reviews', authenticateToken, async (req, res) => {
       absorbency: '',
       wet: '',
       hole: '',
+      harshFeel: '',
+      skrinkage: '',
+      pilling: '',
+      colorBleeding: '',
+      outOfStock: '',
+      badSmall: '',
+      shapeOut: '',
       createdAt: today
     };
 
@@ -374,7 +408,8 @@ app.post('/api/ratings/reviews', authenticateToken, async (req, res) => {
     const requiredFields = [
       'productDescription', 
       'item', 
-      'comboColor', 
+      'combo', 
+      'color', 
       'customer', 
       'overallRating', 
       'ttlReviews'
@@ -706,7 +741,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       color: name === "Sam's Club" ? '#87A96B' : name === "Walmart" ? '#D4AF37' : '#800020'
     }));
 
-    // Quality Issues Analysis (for feedback dashboard)
+    // Quality Issues Analysis (for feedback dashboard) - INCLUDING NEW FIELDS
     const qualityIssues = [];
     if (dashboardType === 'feedback') {
       const issuesMap = {};
@@ -714,7 +749,10 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         const qualityFields = [
           'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
           'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
-          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'
+          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole',
+          // ✅ NEW FIELDS ADDED
+          'harshFeel', 'skrinkage', 'pilling', 'colorBleeding', 'outOfStock',
+          'badSmall', 'shapeOut'
         ];
         
         qualityFields.forEach(field => {
@@ -851,11 +889,16 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         productData[product].count++;
       }
       
-      // Count quality issues
+      // Count quality issues INCLUDING NEW FIELDS
       if (dashboardType === 'feedback') {
-        const qualityFields = ['openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
+        const qualityFields = [
+          'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
           'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
-          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole'];
+          'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole',
+          // ✅ NEW FIELDS ADDED
+          'harshFeel', 'skrinkage', 'pilling', 'colorBleeding', 'outOfStock',
+          'badSmall', 'shapeOut'
+        ];
         
         qualityFields.forEach(field => {
           if (r[field] && r[field].toString().trim() !== '') {
@@ -931,11 +974,15 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
     
     const customers = await Rating.distinct('customer', customerQuery);
     const products = await Rating.distinct('productDescription', customerQuery);
+    const combos = await Rating.distinct('combo', customerQuery);
+    const colors = await Rating.distinct('color', customerQuery);
     
     res.json({
       success: true,
       customers: customers.filter(c => c).sort(),
       products: products.filter(p => p).sort(),
+      combos: combos.filter(c => c).sort(),
+      colors: colors.filter(c => c).sort(),
       userRole: userRole
     });
   } catch (error) {
@@ -945,6 +992,8 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
       customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
                 userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
       products: [],
+      combos: [],
+      colors: [],
       userRole: userRole
     });
   }
@@ -1009,4 +1058,6 @@ app.listen(PORT, () => {
   console.log(`   Admin: admin / admin123`);
   console.log(`   Sam's Club: sams / sams123`);
   console.log(`   Walmart: walmart / walmart123`);
+  console.log(`✅ New fields added: harshFeel, skrinkage, pilling, colorBleeding, outOfStock, badSmall, shapeOut`);
+  console.log(`✅ Combo & Color now separate fields`);
 });
