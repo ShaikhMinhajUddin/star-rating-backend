@@ -10,6 +10,7 @@ const app = express();
 // ========= CORS CONFIGURATION - FIXED FOR RAILWAY & NETLIFY =========
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:5173',
   'https://alkaram-star-rating.netlify.app'
 ];
 
@@ -1020,32 +1021,89 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
     
-    let customerQuery = {};
+    console.log(`🔍 Filters request - User: ${req.user.username}, Role: ${userRole}`);
+    
+    // Build query with role-based filter
+    let query = {};
     
     // Apply role-based filter
     if (userRole === 'sams') {
-      customerQuery.customer = "Sam's Club";
+      query.customer = "Sam's Club";
     } else if (userRole === 'walmart') {
-      customerQuery.customer = "Walmart";
+      query.customer = "Walmart";
     }
+    // Admin - no filter
     
     try {
-      const customers = await Rating.distinct('customer', customerQuery);
-      const products = await Rating.distinct('productDescription', customerQuery);
-      const combos = await Rating.distinct('combo', customerQuery);
-      const colors = await Rating.distinct('color', customerQuery);
+      // Use try-catch for each distinct query to handle empty collections
+      let customers = [];
+      let products = [];
+      let combos = [];
+      let colors = [];
+      
+      try {
+        customers = await Rating.distinct('customer', query);
+      } catch (err) {
+        console.log('⚠️ Error fetching customers:', err.message);
+        customers = [];
+      }
+      
+      try {
+        products = await Rating.distinct('productDescription', query);
+      } catch (err) {
+        console.log('⚠️ Error fetching products:', err.message);
+        products = [];
+      }
+      
+      try {
+        combos = await Rating.distinct('combo', query);
+      } catch (err) {
+        console.log('⚠️ Error fetching combos:', err.message);
+        combos = [];
+      }
+      
+      try {
+        colors = await Rating.distinct('color', query);
+      } catch (err) {
+        console.log('⚠️ Error fetching colors:', err.message);
+        colors = [];
+      }
+      
+      // Filter out null/empty values and sort
+      const filteredCustomers = customers
+        .filter(c => c && c.toString().trim() !== '')
+        .sort();
+      
+      const filteredProducts = products
+        .filter(p => p && p.toString().trim() !== '')
+        .sort();
+      
+      const filteredCombos = combos
+        .filter(c => c && c.toString().trim() !== '')
+        .sort();
+      
+      const filteredColors = colors
+        .filter(c => c && c.toString().trim() !== '')
+        .sort();
+      
+      // If no customers found, provide default based on role
+      const finalCustomers = filteredCustomers.length > 0 ? filteredCustomers : 
+        (userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
+         userRole === 'sams' ? ["Sam's Club"] : ["Walmart"]);
       
       res.json({
         success: true,
-        customers: customers.filter(c => c && c.toString().trim() !== '').sort(),
-        products: products.filter(p => p && p.toString().trim() !== '').sort(),
-        combos: combos.filter(c => c && c.toString().trim() !== '').sort(),
-        colors: colors.filter(c => c && c.toString().trim() !== '').sort(),
+        customers: finalCustomers,
+        products: filteredProducts,
+        combos: filteredCombos,
+        colors: filteredColors,
         userRole: userRole
       });
+      
     } catch (dbError) {
       console.error('Database query error in filters:', dbError);
-      // If distinct queries fail, provide default values
+      
+      // Fallback to default values
       res.json({
         success: true,
         customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
@@ -1097,10 +1155,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ========= 11. REMOVED ROUTER ISSUE =========
-// Removed the problematic router.get() lines that were causing "router is not defined" error
-
-// ========= 12. CATCH-ALL ROUTE FOR OPTIONS REQUESTS =========
+// ========= 11. CATCH-ALL ROUTE FOR OPTIONS REQUESTS =========
 app.options('*', (req, res) => {
   const origin = req.headers.origin;
   
@@ -1112,6 +1167,72 @@ app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
+});
+
+// ========= 12. TEST DATA ENDPOINT =========
+app.get('/api/test-data', authenticateToken, async (req, res) => {
+  try {
+    const count = await Rating.countDocuments();
+    
+    // Create test data if collection is empty
+    if (count === 0) {
+      const testData = [
+        {
+          year: 2024,
+          month: 1,
+          date: 15,
+          productDescription: "Test Product 1",
+          item: "Item A",
+          combo: "Combo 1",
+          color: "Red",
+          customer: "Sam's Club",
+          star1: "5",
+          star2: "3",
+          star3: "2",
+          star4: "1",
+          star5: "10",
+          overallRating: "4.2",
+          ttlReviews: "21",
+          formType: "feedback"
+        },
+        {
+          year: 2024,
+          month: 1,
+          date: 16,
+          productDescription: "Test Product 2",
+          item: "Item B",
+          combo: "Combo 2",
+          color: "Blue",
+          customer: "Walmart",
+          star1: "2",
+          star2: "3",
+          star3: "5",
+          star4: "7",
+          star5: "8",
+          overallRating: "3.8",
+          ttlReviews: "25",
+          formType: "review"
+        }
+      ];
+      
+      await Rating.insertMany(testData);
+      console.log('✅ Test data created');
+    }
+    
+    res.json({
+      success: true,
+      totalRecords: count,
+      message: count === 0 ? 'Test data created' : 'Data exists in database'
+    });
+    
+  } catch (error) {
+    console.error('❌ Test data error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create test data',
+      message: error.message 
+    });
+  }
 });
 
 // ========= 404 HANDLER =========
@@ -1147,7 +1268,7 @@ app.listen(PORT, () => {
   console.log(`✅ Combo & Color now separate fields`);
   console.log(`✅ CORS Fixed for:`);
   console.log(`   - Localhost: 3000, 5173`);
-  console.log(`   - Netlify: https://alkaram-star-rating.netlify.app/`);
-  console.log(`   - Railway: http://data-production-f940.up.railway.app/`);
-  console.log(`✅ Preflight requests handled properly`);
+  console.log(`   - Netlify: https://alkaram-star-rating.netlify.app`);
+  console.log(`✅ Filters endpoint fixed with error handling`);
+  console.log(`✅ Test data endpoint available: GET /api/test-data`);
 });
