@@ -74,6 +74,7 @@ const ratingSchema = new mongoose.Schema({
   outOfStock: { type: String, default: '' },
   badSmall: { type: String, default: '' },
   shapeOut: { type: String, default: '' },
+  formType: { type: String, enum: ['feedback', 'review'], default: 'feedback' },
   
   createdAt: { type: Date, default: Date.now }
 });
@@ -305,6 +306,7 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       outOfStock: String(formData.outOfStock || ''),
       badSmall: String(formData.badSmall || ''),
       shapeOut: String(formData.shapeOut || ''),
+      formType: 'feedback',
       
       createdAt: today
     };
@@ -372,33 +374,7 @@ app.post('/api/ratings/reviews', authenticateToken, async (req, res) => {
       star5: (formData.star5 || 0).toString(),
       overallRating: (formData.overallRating || 0).toString(),
       ttlReviews: (formData.ttlReviews || 1).toString(),
-      reviewComments: '',
-      natureOfReview: 'Neutral',
-      happyCustomer: '',
-      customerExpectation: '',
-      openCorner: '',
-      looseThread: '',
-      thinFabric: '',
-      unravelingSeam: '',
-      unclear: '',
-      priceIssue: '',
-      shadeVariation: '',
-      lint: '',
-      shortQty: '',
-      improperHem: '',
-      poorQuality: '',
-      stain: '',
-      deliveryIssue: '',
-      absorbency: '',
-      wet: '',
-      hole: '',
-      harshFeel: '',
-      skrinkage: '',
-      pilling: '',
-      colorBleeding: '',
-      outOfStock: '',
-      badSmall: '',
-      shapeOut: '',
+      formType: 'review',
       createdAt: today
     };
 
@@ -654,6 +630,7 @@ app.delete('/api/ratings/:id', authenticateToken, async (req, res) => {
 });
 
 // ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering) =========
+// ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering and formType) =========
 app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
@@ -670,6 +647,13 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     }
     // Admin - no customer filter (sab dikhega)
     
+    // Apply formType filter based on dashboard type
+    if (dashboardType === 'feedback') {
+      query.formType = 'feedback';
+    } else if (dashboardType === 'reviews') {
+      query.formType = 'review';
+    }
+    
     // Apply other filters
     if (filters.year) query.year = parseInt(filters.year);
     if (filters.month) query.month = parseInt(filters.month);
@@ -681,9 +665,11 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       query.overallRating = { $gte: parseFloat(filters.minRating) };
     }
 
-    console.log(`📊 Dashboard request - User: ${req.user.username}, Role: ${userRole}, Query:`, query);
+    console.log(`📊 Dashboard request - User: ${req.user.username}, Role: ${userRole}, Dashboard Type: ${dashboardType}, Query:`, query);
 
     const ratings = await Rating.find(query);
+    
+    console.log(`📊 Found ${ratings.length} records for ${dashboardType} dashboard`);
     
     // Basic calculations
     const totalRatings = ratings.length;
@@ -741,7 +727,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       color: name === "Sam's Club" ? '#87A96B' : name === "Walmart" ? '#D4AF37' : '#800020'
     }));
 
-    // Quality Issues Analysis (for feedback dashboard) - INCLUDING NEW FIELDS
+    // Quality Issues Analysis (for feedback dashboard only)
     const qualityIssues = [];
     if (dashboardType === 'feedback') {
       const issuesMap = {};
@@ -767,10 +753,10 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         name,
         value,
         color: value > 10 ? '#800020' : value > 5 ? '#D4AF37' : '#87A96B'
-      })));
+      })).sort((a, b) => b.value - a.value));
     }
 
-    // Nature of Review Data (for feedback dashboard)
+    // Nature of Review Data (for feedback dashboard only)
     const natureOfReviewData = [];
     if (dashboardType === 'feedback') {
       const natureCounts = {};
@@ -779,14 +765,14 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         natureCounts[nature] = (natureCounts[nature] || 0) + 1;
       });
       
-      natureOfReviewData.push(...Object.entries(natureCounts).map(([name, value], index) => ({
+      natureOfReviewData.push(...Object.entries(natureCounts).map(([name, value]) => ({
         name,
         value,
-        color: index % 3 === 0 ? '#800020' : index % 3 === 1 ? '#D4AF37' : '#87A96B'
+        color: name === 'Positive' ? '#87A96B' : name === 'Negative' ? '#800020' : '#D4AF37'
       })));
     }
 
-    // Happy Customer Data (for feedback dashboard)
+    // Happy Customer Data (for feedback dashboard only)
     const happyCustomerData = [];
     if (dashboardType === 'feedback') {
       const monthGroups = {};
@@ -805,9 +791,16 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
           satisfaction: data.total > 0 ? (data.happy / data.total * 100) : 0
         });
       });
+      
+      // Sort by month
+      happyCustomerData.sort((a, b) => {
+        const monthA = parseInt(a.period.split(' ')[1]);
+        const monthB = parseInt(b.period.split(' ')[1]);
+        return monthA - monthB;
+      });
     }
 
-    // Expectation Data (for feedback dashboard)
+    // Expectation Data (for feedback dashboard only)
     const expectationData = [];
     if (dashboardType === 'feedback') {
       const expectationCounts = {};
@@ -825,7 +818,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       });
     }
 
-    // Monthly Trends (for reviews dashboard)
+    // Monthly Trends (for reviews dashboard only)
     const monthlyTrends = [];
     if (dashboardType === 'reviews') {
       const monthData = {};
@@ -853,8 +846,15 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         monthlyTrends.push({
           month: `M-${month}`,
           averageRating: data.count > 0 ? parseFloat((data.totalRating / data.count).toFixed(2)) : 0,
-          reviews: data.reviews
+          totalReviews: data.reviews
         });
+      });
+      
+      // Sort by month
+      monthlyTrends.sort((a, b) => {
+        const monthA = parseInt(a.month.split('-')[1]);
+        const monthB = parseInt(b.month.split('-')[1]);
+        return monthA - monthB;
       });
     }
 
@@ -889,7 +889,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         productData[product].count++;
       }
       
-      // Count quality issues INCLUDING NEW FIELDS
+      // Count quality issues INCLUDING NEW FIELDS (for feedback dashboard only)
       if (dashboardType === 'feedback') {
         const qualityFields = [
           'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
@@ -909,28 +909,39 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     });
 
     // Convert to array and calculate averages
-    topProducts.push(...Object.values(productData).map(p => ({
+    const allProducts = Object.values(productData).map(p => ({
       ...p,
       averageRating: p.count > 0 ? parseFloat((p.totalRating / p.count).toFixed(2)) : 0
-    })).sort((a, b) => {
-      if (dashboardType === 'feedback') {
-        return a.qualityIssues - b.qualityIssues;
-      } else {
-        return b.averageRating - a.averageRating;
-      }
-    }).slice(0, 10));
+    }));
+    
+    // Sort based on dashboard type
+    if (dashboardType === 'feedback') {
+      // For feedback dashboard: sort by fewest quality issues
+      allProducts.sort((a, b) => a.qualityIssues - b.qualityIssues);
+    } else {
+      // For reviews dashboard: sort by highest average rating
+      allProducts.sort((a, b) => b.averageRating - a.averageRating);
+    }
+    
+    // Take top 10
+    topProducts.push(...allProducts.slice(0, 10));
+
+    // Calculate total quality issues
+    const totalQualityIssues = qualityIssues.reduce((sum, issue) => sum + issue.value, 0);
 
     // Send response
     const response = {
       success: true,
       userRole: userRole,
+      dashboardType: dashboardType,
+      recordCount: ratings.length,
       overall: {
         totalRatings,
         averageRating: parseFloat(averageRating.toFixed(2)),
         totalReviews,
         happyCustomerRate: parseFloat(happyCustomerRate.toFixed(2)),
         expectationMetRate: parseFloat(expectationMetRate.toFixed(2)),
-        qualityIssues: qualityIssues.reduce((sum, issue) => sum + issue.value, 0)
+        qualityIssues: totalQualityIssues
       },
       star1Total,
       star2Total,
@@ -946,6 +957,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       expectationData
     };
 
+    console.log(`✅ Dashboard response: ${ratings.length} records, ${dashboardType} type`);
     res.json(response);
     
   } catch (error) {
@@ -1038,6 +1050,106 @@ app.get('/api/health', (req, res) => {
       'GET /api/health - Health check'
     ]
   });
+});
+
+
+// Backend route for feedback dashboard
+router.get('/api/analytics/feedback-dashboard', async (req, res) => {
+  try {
+    const filters = req.query;
+    
+    // Query feedback forms data
+    const feedbackData = await FeedbackForm.aggregate([
+      // Add your aggregation pipeline for feedback forms
+      // Filter by customer, product, date range, etc.
+      {
+        $group: {
+          _id: null,
+          totalFeedback: { $sum: 1 },
+          qualityIssues: { $sum: { $size: "$qualityIssues" } },
+          // Add more aggregations as needed
+        }
+      }
+    ]);
+
+    // Calculate quality issues distribution
+    const qualityIssues = await FeedbackForm.aggregate([
+      { $unwind: "$qualityIssues" },
+      {
+        $group: {
+          _id: "$qualityIssues",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      overall: {
+        totalFeedback: feedbackData[0]?.totalFeedback || 0,
+        qualityIssues: feedbackData[0]?.qualityIssues || 0,
+        // ... other metrics
+      },
+      qualityIssues: qualityIssues.map(issue => ({
+        name: issue._id,
+        value: issue.count
+      })),
+      // ... other data for feedback dashboard
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
+// Backend route for reviews dashboard
+router.get('/api/analytics/reviews-dashboard', async (req, res) => {
+  try {
+    const filters = req.query;
+    
+    // Query reviews/ratings forms data
+    const reviewsData = await Rating.aggregate([
+      // Add your aggregation pipeline for reviews
+      // Filter by customer, product, date range, etc.
+      {
+        $group: {
+          _id: null,
+          totalRatings: { $sum: 1 },
+          averageRating: { $avg: "$rating" },
+          // Add more aggregations as needed
+        }
+      }
+    ]);
+
+    // Calculate star distribution
+    const starDistribution = await Rating.aggregate([
+      {
+        $group: {
+          _id: "$rating",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json({
+      success: true,
+      overall: {
+        totalRatings: reviewsData[0]?.totalRatings || 0,
+        averageRating: reviewsData[0]?.averageRating || 0,
+        // ... other metrics
+      },
+      star1Total: starDistribution.find(s => s._id === 1)?.count || 0,
+      star2Total: starDistribution.find(s => s._id === 2)?.count || 0,
+      star3Total: starDistribution.find(s => s._id === 3)?.count || 0,
+      star4Total: starDistribution.find(s => s._id === 4)?.count || 0,
+      star5Total: starDistribution.find(s => s._id === 5)?.count || 0,
+      // ... other data for reviews dashboard
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ========= 404 HANDLER =========
