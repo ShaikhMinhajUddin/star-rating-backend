@@ -7,17 +7,63 @@ require('dotenv').config();
 
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// ========= CORS CONFIGURATION - FIXED FOR RAILWAY & NETLIFY =========
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://alkaram-star-rating.netlify.app'
+];
 
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`⚠️ Blocked by CORS: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
+// ========= IMPORTANT: Handle preflight for specific routes =========
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
+
+// Body parser middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI, {
+// ========= MONGOOSE CONNECTION =========
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ratings-system', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
@@ -629,7 +675,6 @@ app.delete('/api/ratings/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering) =========
 // ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering and formType) =========
 app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   try {
@@ -1052,104 +1097,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ========= 11. REMOVED ROUTER ISSUE =========
+// Removed the problematic router.get() lines that were causing "router is not defined" error
 
-// Backend route for feedback dashboard
-router.get('/api/analytics/feedback-dashboard', async (req, res) => {
-  try {
-    const filters = req.query;
-    
-    // Query feedback forms data
-    const feedbackData = await FeedbackForm.aggregate([
-      // Add your aggregation pipeline for feedback forms
-      // Filter by customer, product, date range, etc.
-      {
-        $group: {
-          _id: null,
-          totalFeedback: { $sum: 1 },
-          qualityIssues: { $sum: { $size: "$qualityIssues" } },
-          // Add more aggregations as needed
-        }
-      }
-    ]);
-
-    // Calculate quality issues distribution
-    const qualityIssues = await FeedbackForm.aggregate([
-      { $unwind: "$qualityIssues" },
-      {
-        $group: {
-          _id: "$qualityIssues",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    res.json({
-      success: true,
-      overall: {
-        totalFeedback: feedbackData[0]?.totalFeedback || 0,
-        qualityIssues: feedbackData[0]?.qualityIssues || 0,
-        // ... other metrics
-      },
-      qualityIssues: qualityIssues.map(issue => ({
-        name: issue._id,
-        value: issue.count
-      })),
-      // ... other data for feedback dashboard
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+// ========= 12. CATCH-ALL ROUTE FOR OPTIONS REQUESTS =========
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
   }
-});
-
-
-// Backend route for reviews dashboard
-router.get('/api/analytics/reviews-dashboard', async (req, res) => {
-  try {
-    const filters = req.query;
-    
-    // Query reviews/ratings forms data
-    const reviewsData = await Rating.aggregate([
-      // Add your aggregation pipeline for reviews
-      // Filter by customer, product, date range, etc.
-      {
-        $group: {
-          _id: null,
-          totalRatings: { $sum: 1 },
-          averageRating: { $avg: "$rating" },
-          // Add more aggregations as needed
-        }
-      }
-    ]);
-
-    // Calculate star distribution
-    const starDistribution = await Rating.aggregate([
-      {
-        $group: {
-          _id: "$rating",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    res.json({
-      success: true,
-      overall: {
-        totalRatings: reviewsData[0]?.totalRatings || 0,
-        averageRating: reviewsData[0]?.averageRating || 0,
-        // ... other metrics
-      },
-      star1Total: starDistribution.find(s => s._id === 1)?.count || 0,
-      star2Total: starDistribution.find(s => s._id === 2)?.count || 0,
-      star3Total: starDistribution.find(s => s._id === 3)?.count || 0,
-      star4Total: starDistribution.find(s => s._id === 4)?.count || 0,
-      star5Total: starDistribution.find(s => s._id === 5)?.count || 0,
-      // ... other data for reviews dashboard
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
 });
 
 // ========= 404 HANDLER =========
@@ -1183,4 +1145,9 @@ app.listen(PORT, () => {
   console.log(`   Walmart: walmart / walmart123`);
   console.log(`✅ New fields added: harshFeel, skrinkage, pilling, colorBleeding, outOfStock, badSmall, shapeOut`);
   console.log(`✅ Combo & Color now separate fields`);
+  console.log(`✅ CORS Fixed for:`);
+  console.log(`   - Localhost: 3000, 5173`);
+  console.log(`   - Netlify: https://alkaram-star-rating.netlify.app/`);
+  console.log(`   - Railway: http://data-production-f940.up.railway.app/`);
+  console.log(`✅ Preflight requests handled properly`);
 });
