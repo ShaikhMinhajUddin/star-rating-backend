@@ -677,10 +677,21 @@ app.delete('/api/ratings/:id', authenticateToken, async (req, res) => {
 });
 
 // ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering and formType) =========
+// ========= 7. GET DASHBOARD ANALYTICS (with role-based filtering and formType) =========
 app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
-    const { dashboardType = 'feedback', ...filters } = req.query;
+    const { 
+      dashboardType = 'feedback', 
+      item, // ✅ ADDED item filter parameter
+      year, 
+      month, 
+      customer,
+      startDate,
+      endDate,
+      timeRange,
+      ...otherFilters 
+    } = req.query;
     
     // Build query with role-based filter
     let query = {};
@@ -693,6 +704,12 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     }
     // Admin - no customer filter (sab dikhega)
     
+    // ✅ APPLY ITEM FILTER IF PROVIDED
+    if (item && item !== 'All Items' && item !== '') {
+      console.log(`🔍 Filtering by item: ${item}`);
+      query.item = item;
+    }
+    
     // Apply formType filter based on dashboard type
     if (dashboardType === 'feedback') {
       query.formType = 'feedback';
@@ -701,21 +718,84 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     }
     
     // Apply other filters
-    if (filters.year) query.year = parseInt(filters.year);
-    if (filters.month) query.month = parseInt(filters.month);
-    if (filters.product) query.productDescription = { $regex: filters.product, $options: 'i' };
-    if (filters.customer && userRole === 'admin') {
-      query.customer = filters.customer; // Admin can filter by any customer
+    if (year) query.year = parseInt(year);
+    if (month) query.month = parseInt(month);
+    
+    // ✅ Apply customer filter for admin
+    if (customer && userRole === 'admin') {
+      query.customer = customer;
     }
-    if (filters.minRating) {
-      query.overallRating = { $gte: parseFloat(filters.minRating) };
+    
+    // ✅ Apply date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.createdAt.$lte = new Date(endDate);
+      }
+    }
+    
+    // ✅ Apply timeRange filter
+    if (timeRange === 'weekly') {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      query.createdAt = { $gte: oneWeekAgo };
+    } else if (timeRange === 'monthly') {
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      query.createdAt = { $gte: oneMonthAgo };
     }
 
-    console.log(`📊 Dashboard request - User: ${req.user.username}, Role: ${userRole}, Dashboard Type: ${dashboardType}, Query:`, query);
+    console.log(`📊 Dashboard request - User: ${req.user.username}, Role: ${userRole}, Dashboard Type: ${dashboardType}`);
+    console.log(`📊 Query filters:`, {
+      item: item || 'All Items',
+      year: year || 'All Years',
+      month: month || 'All Months',
+      customer: query.customer || 'All Customers',
+      timeRange: timeRange || 'All Time',
+      formType: query.formType
+    });
+    console.log(`📊 MongoDB Query:`, query);
 
     const ratings = await Rating.find(query);
     
     console.log(`📊 Found ${ratings.length} records for ${dashboardType} dashboard`);
+    
+    if (ratings.length === 0) {
+      // Return empty response if no data
+      return res.json({
+        success: true,
+        userRole: userRole,
+        dashboardType: dashboardType,
+        recordCount: 0,
+        overall: {
+          totalRatings: 0,
+          averageRating: 0,
+          totalReviews: 0,
+          happyCustomerRate: 0,
+          expectationMetRate: 0,
+          qualityIssues: 0
+        },
+        star1Total: 0,
+        star2Total: 0,
+        star3Total: 0,
+        star4Total: 0,
+        star5Total: 0,
+        customerDistribution: [],
+        monthlyTrends: [],
+        qualityIssues: [],
+        topProducts: [],
+        itemDistribution: [],
+        itemWiseRatings: [],
+        comboDistribution: [],
+        colorDistribution: [],
+        natureOfReviewData: [],
+        happyCustomerData: [],
+        expectationData: []
+      });
+    }
     
     // Basic calculations
     const totalRatings = ratings.length;
@@ -723,6 +803,9 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     let totalRating = 0;
     let happyCustomers = 0;
     let metExpectations = 0;
+    
+    // ✅ Calculate item distribution
+    const itemDistributionMap = {};
     
     ratings.forEach(rating => {
       const star1 = parseInt(rating.star1) || 0;
@@ -747,6 +830,62 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       if (rating.customerExpectation === 'Met') {
         metExpectations++;
       }
+      
+      // ✅ Build item distribution
+      const itemName = rating.item || 'Unknown';
+      if (!itemDistributionMap[itemName]) {
+        itemDistributionMap[itemName] = {
+          name: itemName,
+          value: 0,
+          star1: 0,
+          star2: 0,
+          star3: 0,
+          star4: 0,
+          star5: 0,
+          totalReviews: 0,
+          averageRating: 0
+        };
+      }
+      
+      itemDistributionMap[itemName].value += 1;
+      itemDistributionMap[itemName].star1 += star1;
+      itemDistributionMap[itemName].star2 += star2;
+      itemDistributionMap[itemName].star3 += star3;
+      itemDistributionMap[itemName].star4 += star4;
+      itemDistributionMap[itemName].star5 += star5;
+      itemDistributionMap[itemName].totalReviews += sum;
+    });
+    
+    // ✅ Calculate item-wise ratings and averages
+    const itemDistribution = [];
+    const itemWiseRatings = [];
+    
+    Object.values(itemDistributionMap).forEach(itemData => {
+      // Add to itemDistribution
+      itemDistribution.push({
+        name: itemData.name,
+        value: itemData.value
+      });
+      
+      // Calculate average rating for item
+      const totalItemReviews = itemData.totalReviews;
+      const totalItemWeighted = (itemData.star5 * 5) + (itemData.star4 * 4) + 
+                                (itemData.star3 * 3) + (itemData.star2 * 2) + 
+                                (itemData.star1 * 1);
+      const itemAvgRating = totalItemReviews > 0 ? 
+        totalItemWeighted / totalItemReviews : 0;
+      
+      // Add to itemWiseRatings
+      itemWiseRatings.push({
+        name: itemData.name,
+        star1: itemData.star1,
+        star2: itemData.star2,
+        star3: itemData.star3,
+        star4: itemData.star4,
+        star5: itemData.star5,
+        totalRatings: itemData.totalReviews,
+        averageRating: parseFloat(itemAvgRating.toFixed(2))
+      });
     });
     
     const averageRating = totalRatings > 0 ? totalRating / totalRatings : 0;
@@ -782,7 +921,6 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
           'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
           'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
           'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole',
-          // ✅ NEW FIELDS ADDED
           'harshFeel', 'skrinkage', 'pilling', 'colorBleeding', 'outOfStock',
           'badSmall', 'shapeOut'
         ];
@@ -935,13 +1073,12 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         productData[product].count++;
       }
       
-      // Count quality issues INCLUDING NEW FIELDS (for feedback dashboard only)
+      // Count quality issues (for feedback dashboard only)
       if (dashboardType === 'feedback') {
         const qualityFields = [
           'openCorner', 'looseThread', 'thinFabric', 'unravelingSeam', 'unclear',
           'priceIssue', 'shadeVariation', 'lint', 'shortQty', 'improperHem',
           'poorQuality', 'stain', 'deliveryIssue', 'absorbency', 'wet', 'hole',
-          // ✅ NEW FIELDS ADDED
           'harshFeel', 'skrinkage', 'pilling', 'colorBleeding', 'outOfStock',
           'badSmall', 'shapeOut'
         ];
@@ -956,24 +1093,44 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
 
     // Convert to array and calculate averages
     const allProducts = Object.values(productData).map(p => ({
-      ...p,
-      averageRating: p.count > 0 ? parseFloat((p.totalRating / p.count).toFixed(2)) : 0
+      name: p.product,
+      averageRating: p.count > 0 ? parseFloat((p.totalRating / p.count).toFixed(2)) : 0,
+      totalReviews: p.totalReviews,
+      qualityIssues: p.qualityIssues,
+      customer: p.customer
     }));
     
-    // Sort based on dashboard type
-    if (dashboardType === 'feedback') {
-      // For feedback dashboard: sort by fewest quality issues
-      allProducts.sort((a, b) => a.qualityIssues - b.qualityIssues);
+    // ✅ If item filter is applied, show only that item in topProducts
+    if (item && item !== 'All Items' && item !== '') {
+      // Find the selected item data
+      const selectedItemData = itemWiseRatings.find(i => i.name === item);
+      if (selectedItemData) {
+        topProducts.push({
+          name: item,
+          averageRating: selectedItemData.averageRating,
+          totalReviews: selectedItemData.totalRatings
+        });
+      }
     } else {
-      // For reviews dashboard: sort by highest average rating
-      allProducts.sort((a, b) => b.averageRating - a.averageRating);
+      // No item filter - show all products sorted
+      if (dashboardType === 'feedback') {
+        // For feedback dashboard: sort by fewest quality issues
+        allProducts.sort((a, b) => a.qualityIssues - b.qualityIssues);
+      } else {
+        // For reviews dashboard: sort by highest average rating
+        allProducts.sort((a, b) => b.averageRating - a.averageRating);
+      }
+      
+      // Take top 10
+      topProducts.push(...allProducts.slice(0, 10));
     }
-    
-    // Take top 10
-    topProducts.push(...allProducts.slice(0, 10));
 
     // Calculate total quality issues
     const totalQualityIssues = qualityIssues.reduce((sum, issue) => sum + issue.value, 0);
+    
+    // ✅ Calculate combo and color distributions
+    const comboDistribution = calculateDistribution(ratings, 'combo');
+    const colorDistribution = calculateDistribution(ratings, 'color');
 
     // Send response
     const response = {
@@ -998,12 +1155,20 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       monthlyTrends,
       qualityIssues,
       topProducts,
+      itemDistribution, // ✅ Now includes item distribution
+      itemWiseRatings,  // ✅ Now includes item-wise ratings
+      comboDistribution, // ✅ Combo distribution
+      colorDistribution, // ✅ Color distribution
       natureOfReviewData,
       happyCustomerData,
       expectationData
     };
 
     console.log(`✅ Dashboard response: ${ratings.length} records, ${dashboardType} type`);
+    console.log(`✅ Item filter applied: ${item || 'No item filter'}`);
+    console.log(`✅ Item distribution: ${itemDistribution.length} items`);
+    console.log(`✅ Top products: ${topProducts.length} products`);
+    
     res.json(response);
     
   } catch (error) {
@@ -1015,6 +1180,30 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// ✅ Helper function for distribution calculations
+function calculateDistribution(ratings, field) {
+  const map = {};
+  ratings.forEach(rating => {
+    const value = rating[field];
+    if (value && value.toString().trim() !== '') {
+      map[value] = (map[value] || 0) + 1;
+    }
+  });
+  
+  return Object.entries(map).map(([name, value]) => ({
+    name,
+    value,
+    color: getColorForDistribution(name)
+  }));
+}
+
+// ✅ Helper function to get colors for distributions
+function getColorForDistribution(name) {
+  const colors = ['#D4AF37', '#800020', '#0F1A3D', '#87A96B', '#8B7355', '#A0522D', '#4682B4', '#32CD32'];
+  const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return colors[hash % colors.length];
+}
 
 // ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
 app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
