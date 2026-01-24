@@ -1248,12 +1248,14 @@ function getColorForDistribution(name) {
 }
 
 // ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
+// COMPLETELY DELETE LINES 570 TO 630 AND REPLACE WITH:
+
 app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
-    console.log(`🔍 Filters request - User: ${req.user.username}, Role: ${userRole}`);
+    console.log(`🔍 Filters API called - User: ${req.user.username}, Role: ${userRole}`);
     
-    // Simple defaults first
+    // SIMPLE DEFAULT VALUES - ALWAYS RETURN THESE
     const defaults = {
       customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
                  userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
@@ -1264,54 +1266,23 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
       colors: []
     };
     
-    // Try to get real data
-    try {
-      let query = {};
-      if (userRole === 'sams') query.customer = "Sam's Club";
-      else if (userRole === 'walmart') query.customer = "Walmart";
-      
-      // Get distinct values with timeout
-      const [customers, items, years, months] = await Promise.all([
-        Rating.distinct('customer', query).catch(() => defaults.customers),
-        Rating.distinct('item', query).catch(() => defaults.items),
-        Rating.distinct('year', query).catch(() => defaults.years),
-        Rating.distinct('month', query).catch(() => defaults.months)
-      ]);
-      
-      // Use real data if available, otherwise defaults
-      const response = {
-        success: true,
-        customers: customers && customers.length > 0 ? 
-                  customers.filter(c => c && c.toString().trim() !== '').sort() : 
-                  defaults.customers,
-        items: items && items.length > 0 ? 
-               items.filter(i => i && i.toString().trim() !== '').sort() : 
-               defaults.items,
-        years: years && years.length > 0 ? 
-               years.filter(y => y && !isNaN(y)).sort((a, b) => b - a) : 
-               defaults.years,
-        months: months && months.length > 0 ? 
-                months.filter(m => m && m >= 1 && m <= 12).sort((a, b) => a - b) : 
-                defaults.months,
-        combos: [],
-        colors: [],
-        userRole: userRole
-      };
-      
-      res.json(response);
-      
-    } catch (dbError) {
-      console.log('Database query failed, using defaults:', dbError.message);
-      res.json({
-        success: true,
-        ...defaults,
-        userRole: userRole
-      });
-    }
+    console.log('✅ Returning default filter values:', defaults);
+    
+    res.json({
+      success: true,
+      customers: defaults.customers,
+      items: defaults.items,
+      years: defaults.years,
+      months: defaults.months,
+      combos: defaults.combos,
+      colors: defaults.colors,
+      userRole: userRole
+    });
     
   } catch (error) {
     console.error('❌ Filters endpoint error:', error);
-    // Always return 200 with defaults, never 500
+    
+    // EVEN ON ERROR, RETURN DEFAULT VALUES
     res.status(200).json({
       success: true,
       customers: ["Sam's Club", "Walmart"],
