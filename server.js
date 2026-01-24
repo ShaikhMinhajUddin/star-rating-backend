@@ -285,6 +285,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.post('/api/ratings', authenticateToken, async (req, res) => {
   try {
     console.log('📥 Received feedback submission from:', req.user.username);
+    console.log('📦 Form data received:', Object.keys(req.body));
     
     const formData = req.body;
     const userRole = req.user.role;
@@ -306,37 +307,49 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
     
     const today = new Date();
     
+    // ✅ FIX: Use date from frontend form, NOT server date
     const feedbackData = {
-      year: today.getFullYear(),
-      month: today.getMonth() + 1,
-      date: today.getDate(),
+      // ✅ CRITICAL FIX: Get date from frontend, not server
+      year: parseInt(formData.year) || today.getFullYear(),
+      month: parseInt(formData.month) || (today.getMonth() + 1),
+      date: parseInt(formData.date) || today.getDate(),
+      
       productDescription: formData.productDescription || 'Unknown Product',
       item: formData.item || 'Unknown Item',
-      combo: formData.combo || '',      // Alag field
-      color: formData.color || '',      // Alag field
+      combo: formData.combo || '',
+      color: formData.color || '',
       customer: formData.customer || 'Other',
-      star1: (formData.star1 || 0).toString(),
-      star2: (formData.star2 || 0).toString(),
-      star3: (formData.star3 || 0).toString(),
-      star4: (formData.star4 || 0).toString(),
-      star5: (formData.star5 || 0).toString(),
+      
+      // Star ratings (from 0-5 fields in feedback form)
+      star1: (formData.star1 || formData['0'] || 0).toString(),
+      star2: (formData.star2 || formData['1'] || 0).toString(),
+      star3: (formData.star3 || formData['2'] || 0).toString(),
+      star4: (formData.star4 || formData['3'] || 0).toString(),
+      star5: (formData.star5 || formData['4'] || formData['5'] || 0).toString(),
+      
+      // Required fields for schema
       overallRating: (formData.overallRating || 0).toString(),
       ttlReviews: (formData.ttlReviews || 1).toString(),
+      
+      // ✅ IMPORTANT: Include formType
+      formType: 'feedback',
+      
+      // Review/Comment fields
       reviewComments: formData.reviewComments || '',
       natureOfReview: formData.natureOfReview || 'Neutral',
       happyCustomer: formData.happyCustomer || '',
       customerExpectation: formData.customerExpectation || '',
       
-      // ✅ ALL FIELDS INCLUDING NEW ONES
-      openCorner: String(formData.openCorner || ''),
+      // ✅ Include ALL defect fields from schema
+      openCorner: String(formData.openCorner || formData.unraveled || ''),
       looseThread: String(formData.looseThread || ''),
       thinFabric: String(formData.thinFabric || ''),
-      unravelingSeam: String(formData.unravelingSeam || ''),
+      unravelingSeam: String(formData.unravelingSeam || formData.unraveled || ''),
       unclear: String(formData.unclear || ''),
       priceIssue: String(formData.priceIssue || ''),
       shadeVariation: String(formData.shadeVariation || ''),
       lint: String(formData.lint || ''),
-      shortQty: String(formData.shortQty || ''),
+      shortQty: String(formData.shortQty || formData.missingQtyInPack || ''),
       improperHem: String(formData.improperHem || ''),
       poorQuality: String(formData.poorQuality || ''),
       stain: String(formData.stain || ''),
@@ -345,25 +358,50 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       wet: String(formData.wet || ''),
       hole: String(formData.hole || ''),
       
-      // ✅ NEW FIELDS
+      // ✅ NEW FIELDS - map from frontend names to schema names
       harshFeel: String(formData.harshFeel || ''),
-      skrinkage: String(formData.skrinkage || ''),
+      skrinkage: String(formData.skrinkage || formData.shrinkage || ''),
       pilling: String(formData.pilling || ''),
       colorBleeding: String(formData.colorBleeding || ''),
       outOfStock: String(formData.outOfStock || ''),
-      badSmall: String(formData.badSmall || ''),
+      badSmall: String(formData.badSmall || formData.badSmell || ''),
       shapeOut: String(formData.shapeOut || ''),
-      formType: 'feedback',
+      
+      // ✅ Additional fields that might come from frontend
+      rustStain: String(formData.rustStain || ''),
+      notAsDescribed: String(formData.notAsDescribed || ''),
+      overCharged: String(formData.overCharged || ''),
       
       createdAt: today
     };
 
-    console.log('📝 Prepared feedback data for:', formData.customer);
+    console.log('📝 Prepared feedback data with date:', {
+      year: feedbackData.year,
+      month: feedbackData.month,
+      date: feedbackData.date,
+      formType: feedbackData.formType,
+      customer: feedbackData.customer,
+      item: feedbackData.item
+    });
+
+    console.log('🔍 Checking defect fields:', {
+      unraveled: formData.unraveled,
+      stain: formData.stain,
+      looseThread: formData.looseThread,
+      hole: formData.hole,
+      rustStain: formData.rustStain
+    });
 
     const rating = new Rating(feedbackData);
     await rating.save();
     
     console.log('✅ Feedback saved successfully. ID:', rating._id);
+    console.log('📅 Saved with date:', {
+      year: rating.year,
+      month: rating.month,
+      date: rating.date,
+      createdAt: rating.createdAt
+    });
     
     res.status(201).json({ 
       success: true, 
@@ -371,11 +409,14 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       data: rating 
     });
   } catch (error) {
-    console.error('❌ Error saving feedback:', error.message);
+    console.error('❌ Error saving feedback:', error);
+    console.error('❌ Error stack:', error.stack);
+    
     res.status(400).json({ 
       success: false, 
       message: 'Error saving feedback', 
-      error: error.message 
+      error: error.message,
+      details: error.errors || 'No validation errors'
     });
   }
 });
