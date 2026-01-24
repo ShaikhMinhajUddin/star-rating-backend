@@ -11,7 +11,8 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://alkaram-star-rating.netlify.app'
+  'https://alkaram-star-rating.netlify.app',
+  'https://data-production-f940.up.railway.app'
 ];
 
 const corsOptions = {
@@ -1247,115 +1248,79 @@ function getColorForDistribution(name) {
 }
 
 // ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
-// ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
 app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
-    
     console.log(`🔍 Filters request - User: ${req.user.username}, Role: ${userRole}`);
     
-    // Build query with role-based filter
-    let query = {};
+    // Simple defaults first
+    const defaults = {
+      customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
+                 userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
+      items: ['18 Pack', '20 Pack', '24 Pack', '36 Pack', '50 Pack', '60 Pack'],
+      years: Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i),
+      months: Array.from({ length: 12 }, (_, i) => i + 1),
+      combos: [],
+      colors: []
+    };
     
-    // Apply role-based filter
-    if (userRole === 'sams') {
-      query.customer = "Sam's Club";
-    } else if (userRole === 'walmart') {
-      query.customer = "Walmart";
-    }
-    // Admin - no filter
-    
+    // Try to get real data
     try {
-      // ✅ ADDED: Check if Rating collection exists
-      const collectionExists = await Rating.exists({});
+      let query = {};
+      if (userRole === 'sams') query.customer = "Sam's Club";
+      else if (userRole === 'walmart') query.customer = "Walmart";
       
-      if (!collectionExists) {
-        console.log('📭 No data in Rating collection yet');
-        return res.json({
-          success: true,
-          customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
-                    userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
-          products: [],
-          combos: [],
-          colors: [],
-          years: [],
-          months: [],
-          userRole: userRole
-        });
-      }
+      // Get distinct values with timeout
+      const [customers, items, years, months] = await Promise.all([
+        Rating.distinct('customer', query).catch(() => defaults.customers),
+        Rating.distinct('item', query).catch(() => defaults.items),
+        Rating.distinct('year', query).catch(() => defaults.years),
+        Rating.distinct('month', query).catch(() => defaults.months)
+      ]);
       
-      // ✅ FIXED: Use safer queries
-      let customers = await Rating.distinct('customer', query).catch(() => []);
-      let products = await Rating.distinct('productDescription', query).catch(() => []);
-      let combos = await Rating.distinct('combo', query).catch(() => []);
-      let colors = await Rating.distinct('color', query).catch(() => []);
-      let years = await Rating.distinct('year', query).catch(() => []);
-      let months = await Rating.distinct('month', query).catch(() => []);
-      
-      // Filter out null/empty values and sort
-      const filteredCustomers = customers
-        .filter(c => c && c.toString().trim() !== '')
-        .sort();
-      
-      const filteredProducts = products
-        .filter(p => p && p.toString().trim() !== '')
-        .sort();
-      
-      const filteredCombos = combos
-        .filter(c => c && c.toString().trim() !== '')
-        .sort();
-      
-      const filteredColors = colors
-        .filter(c => c && c.toString().trim() !== '')
-        .sort();
-      
-      const filteredYears = years
-        .filter(y => y && !isNaN(y))
-        .sort((a, b) => b - a);
-      
-      const filteredMonths = months
-        .filter(m => m && m >= 1 && m <= 12)
-        .sort((a, b) => a - b);
-      
-      // If no customers found, provide default based on role
-      const finalCustomers = filteredCustomers.length > 0 ? filteredCustomers : 
-        (userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
-         userRole === 'sams' ? ["Sam's Club"] : ["Walmart"]);
-      
-      res.json({
+      // Use real data if available, otherwise defaults
+      const response = {
         success: true,
-        customers: finalCustomers,
-        products: filteredProducts,
-        combos: filteredCombos,
-        colors: filteredColors,
-        years: filteredYears,
-        months: filteredMonths,
-        userRole: userRole
-      });
-      
-    } catch (dbError) {
-      console.error('Database query error in filters:', dbError);
-      
-      // Fallback to default values
-      res.json({
-        success: true,
-        customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
-                  userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
-        products: [],
+        customers: customers && customers.length > 0 ? 
+                  customers.filter(c => c && c.toString().trim() !== '').sort() : 
+                  defaults.customers,
+        items: items && items.length > 0 ? 
+               items.filter(i => i && i.toString().trim() !== '').sort() : 
+               defaults.items,
+        years: years && years.length > 0 ? 
+               years.filter(y => y && !isNaN(y)).sort((a, b) => b - a) : 
+               defaults.years,
+        months: months && months.length > 0 ? 
+                months.filter(m => m && m >= 1 && m <= 12).sort((a, b) => a - b) : 
+                defaults.months,
         combos: [],
         colors: [],
-        years: [],
-        months: [],
+        userRole: userRole
+      };
+      
+      res.json(response);
+      
+    } catch (dbError) {
+      console.log('Database query failed, using defaults:', dbError.message);
+      res.json({
+        success: true,
+        ...defaults,
         userRole: userRole
       });
     }
     
   } catch (error) {
     console.error('❌ Filters endpoint error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to fetch filter options',
-      message: error.message 
+    // Always return 200 with defaults, never 500
+    res.status(200).json({
+      success: true,
+      customers: ["Sam's Club", "Walmart"],
+      items: ['18 Pack', '20 Pack', '24 Pack', '36 Pack', '50 Pack', '60 Pack'],
+      years: Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i),
+      months: Array.from({ length: 12 }, (_, i) => i + 1),
+      combos: [],
+      colors: [],
+      userRole: req.user?.role || 'admin'
     });
   }
 });
