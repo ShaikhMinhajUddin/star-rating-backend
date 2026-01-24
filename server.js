@@ -1247,6 +1247,7 @@ function getColorForDistribution(name) {
 }
 
 // ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
+// ========= 8. GET FILTER OPTIONS (with role-based filtering) - FIXED =========
 app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
   try {
     const userRole = req.user.role;
@@ -1265,39 +1266,31 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
     // Admin - no filter
     
     try {
-      // Use try-catch for each distinct query to handle empty collections
-      let customers = [];
-      let products = [];
-      let combos = [];
-      let colors = [];
+      // ✅ ADDED: Check if Rating collection exists
+      const collectionExists = await Rating.exists({});
       
-      try {
-        customers = await Rating.distinct('customer', query);
-      } catch (err) {
-        console.log('⚠️ Error fetching customers:', err.message);
-        customers = [];
+      if (!collectionExists) {
+        console.log('📭 No data in Rating collection yet');
+        return res.json({
+          success: true,
+          customers: userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
+                    userRole === 'sams' ? ["Sam's Club"] : ["Walmart"],
+          products: [],
+          combos: [],
+          colors: [],
+          years: [],
+          months: [],
+          userRole: userRole
+        });
       }
       
-      try {
-        products = await Rating.distinct('productDescription', query);
-      } catch (err) {
-        console.log('⚠️ Error fetching products:', err.message);
-        products = [];
-      }
-      
-      try {
-        combos = await Rating.distinct('combo', query);
-      } catch (err) {
-        console.log('⚠️ Error fetching combos:', err.message);
-        combos = [];
-      }
-      
-      try {
-        colors = await Rating.distinct('color', query);
-      } catch (err) {
-        console.log('⚠️ Error fetching colors:', err.message);
-        colors = [];
-      }
+      // ✅ FIXED: Use safer queries
+      let customers = await Rating.distinct('customer', query).catch(() => []);
+      let products = await Rating.distinct('productDescription', query).catch(() => []);
+      let combos = await Rating.distinct('combo', query).catch(() => []);
+      let colors = await Rating.distinct('color', query).catch(() => []);
+      let years = await Rating.distinct('year', query).catch(() => []);
+      let months = await Rating.distinct('month', query).catch(() => []);
       
       // Filter out null/empty values and sort
       const filteredCustomers = customers
@@ -1316,6 +1309,14 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
         .filter(c => c && c.toString().trim() !== '')
         .sort();
       
+      const filteredYears = years
+        .filter(y => y && !isNaN(y))
+        .sort((a, b) => b - a);
+      
+      const filteredMonths = months
+        .filter(m => m && m >= 1 && m <= 12)
+        .sort((a, b) => a - b);
+      
       // If no customers found, provide default based on role
       const finalCustomers = filteredCustomers.length > 0 ? filteredCustomers : 
         (userRole === 'admin' ? ["Sam's Club", "Walmart"] : 
@@ -1327,6 +1328,8 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
         products: filteredProducts,
         combos: filteredCombos,
         colors: filteredColors,
+        years: filteredYears,
+        months: filteredMonths,
         userRole: userRole
       });
       
@@ -1341,6 +1344,8 @@ app.get('/api/ratings/filters', authenticateToken, async (req, res) => {
         products: [],
         combos: [],
         colors: [],
+        years: [],
+        months: [],
         userRole: userRole
       });
     }
