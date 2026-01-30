@@ -12,7 +12,8 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://alkaram-star-rating.netlify.app',
-  'https://data-production-f940.up.railway.app'
+  'https://data-production-f940.up.railway.app',
+  'https://data-production-f940.up.railway.app/'
 ];
 
 const corsOptions = {
