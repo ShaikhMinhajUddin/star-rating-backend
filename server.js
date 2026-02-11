@@ -75,15 +75,15 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ratings-s
 
 // ========= SCHEMAS =========
 
-// Rating Schema - UPDATED with new fields and separate combo & color
+// Rating Schema - COMPLETELY FIXED with all fields
 const ratingSchema = new mongoose.Schema({
   year: { type: Number, required: true },
   month: { type: Number, required: true },
   date: { type: Number, required: true },
   productDescription: { type: String, required: true },
   item: { type: String, required: true },
-  combo: { type: String, default: '' },      // ALAG FIELD
-  color: { type: String, default: '' },      // ALAG FIELD
+  combo: { type: String, default: '' },
+  color: { type: String, default: '' },
   customer: { type: String, required: true },
   star1: { type: String, default: '0' },
   star2: { type: String, default: '0' },
@@ -97,34 +97,47 @@ const ratingSchema = new mongoose.Schema({
   happyCustomer: { type: String, default: '' },
   customerExpectation: { type: String, default: '' },
   
-  // ✅ ALL FIELDS FROM FRONTEND INCLUDING NEW ONES
-  openCorner: { type: String, default: '' },
+  // ========== QUALITY RELATED ISSUES ==========
+  unraveled: { type: String, default: '' },        // ✅ ADDED
+  stain: { type: String, default: '' },
   looseThread: { type: String, default: '' },
-  thinFabric: { type: String, default: '' },
-  unravelingSeam: { type: String, default: '' },
-  unclear: { type: String, default: '' },
-  priceIssue: { type: String, default: '' },
-  shadeVariation: { type: String, default: '' },
+  hole: { type: String, default: '' },
+  rustStain: { type: String, default: '' },        // ✅ ADDED
+  shapeOut: { type: String, default: '' },
+  openCorner: { type: String, default: '' },
+  missingQtyInPack: { type: String, default: '' }, // ✅ ADDED
+  poorQuality: { type: String, default: '' },
+  wet: { type: String, default: '' },
+  
+  // ========== PERFORMANCE RELATED ISSUES ==========
+  harshFeel: { type: String, default: '' },
   lint: { type: String, default: '' },
+  thinFabric: { type: String, default: '' },
+  pilling: { type: String, default: '' },
+  badSmell: { type: String, default: '' },         // ✅ FIXED (was badSmall)
+  shrinkage: { type: String, default: '' },        // ✅ FIXED (was skrinkage)
+  colorBleeding: { type: String, default: '' },
+  absorbency: { type: String, default: '' },
+  
+  // ========== NON-QUALITY RELATED ISSUES ==========
+  customerExpectation: { type: String, default: '' },
+  deliveryIssue: { type: String, default: '' },
+  unclear: { type: String, default: '' },
+  notAsDescribed: { type: String, default: '' },   // ✅ ADDED
+  outOfStock: { type: String, default: '' },
+  priceIssue: { type: String, default: '' },
+  overCharged: { type: String, default: '' },      // ✅ ADDED
+  
+  // Old fields for backward compatibility
+  unravelingSeam: { type: String, default: '' },
+  shadeVariation: { type: String, default: '' },
   shortQty: { type: String, default: '' },
   improperHem: { type: String, default: '' },
-  poorQuality: { type: String, default: '' },
-  stain: { type: String, default: '' },
-  deliveryIssue: { type: String, default: '' },
-  absorbency: { type: String, default: '' },
-  wet: { type: String, default: '' },
-  hole: { type: String, default: '' },
   
-  // ✅ NEW FIELDS ADDED FROM FRONTEND FORMS
-  harshFeel: { type: String, default: '' },
-  skrinkage: { type: String, default: '' },
-  pilling: { type: String, default: '' },
-  colorBleeding: { type: String, default: '' },
-  outOfStock: { type: String, default: '' },
-  badSmall: { type: String, default: '' },
-  shapeOut: { type: String, default: '' },
   formType: { type: String, enum: ['feedback', 'review'], default: 'feedback' },
-  
+
+
+
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -284,10 +297,11 @@ app.post('/api/auth/logout', (req, res) => {
 // ========= PROTECTED ROUTES =========
 
 // ========= 1. FEEDBACK FORM ENDPOINT (Feedback Tab) =========
+// ========= 1. FEEDBACK FORM ENDPOINT (FIXED) =========
 app.post('/api/ratings', authenticateToken, async (req, res) => {
   try {
     console.log('📥 Received feedback submission from:', req.user.username);
-    console.log('📦 Form data received:', Object.keys(req.body));
+    console.log('📦 Form data received:', req.body);
     
     const formData = req.body;
     const userRole = req.user.role;
@@ -309,9 +323,9 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
     
     const today = new Date();
     
-    // ✅ FIX: Use date from frontend form, NOT server date
+    // ✅ FIXED: Map all fields correctly with proper names
     const feedbackData = {
-      // ✅ CRITICAL FIX: Get date from frontend, not server
+      // Date fields
       year: parseInt(formData.year) || today.getFullYear(),
       month: parseInt(formData.month) || (today.getMonth() + 1),
       date: parseInt(formData.date) || today.getDate(),
@@ -322,88 +336,77 @@ app.post('/api/ratings', authenticateToken, async (req, res) => {
       color: formData.color || '',
       customer: formData.customer || 'Other',
       
-      // Star ratings (from 0-5 fields in feedback form)
-      star1: (formData.star1 || formData['0'] || 0).toString(),
-      star2: (formData.star2 || formData['1'] || 0).toString(),
-      star3: (formData.star3 || formData['2'] || 0).toString(),
-      star4: (formData.star4 || formData['3'] || 0).toString(),
-      star5: (formData.star5 || formData['4'] || formData['5'] || 0).toString(),
+      // Star ratings
+      star1: (formData.star1 || formData['1'] || 0).toString(),
+      star2: (formData.star2 || formData['2'] || 0).toString(),
+      star3: (formData.star3 || formData['3'] || 0).toString(),
+      star4: (formData.star4 || formData['4'] || 0).toString(),
+      star5: (formData.star5 || formData['5'] || 0).toString(),
       
-      // Required fields for schema
       overallRating: (formData.overallRating || 0).toString(),
       ttlReviews: (formData.ttlReviews || 1).toString(),
       
-      // ✅ IMPORTANT: Include formType
       formType: 'feedback',
       
-      // Review/Comment fields
       reviewComments: formData.reviewComments || '',
       natureOfReview: formData.natureOfReview || 'Neutral',
       happyCustomer: formData.happyCustomer || '',
       customerExpectation: formData.customerExpectation || '',
       
-      // ✅ Include ALL defect fields from schema
-      openCorner: String(formData.openCorner || formData.unraveled || ''),
-      looseThread: String(formData.looseThread || ''),
-      thinFabric: String(formData.thinFabric || ''),
-      unravelingSeam: String(formData.unravelingSeam || formData.unraveled || ''),
-      unclear: String(formData.unclear || ''),
-      priceIssue: String(formData.priceIssue || ''),
-      shadeVariation: String(formData.shadeVariation || ''),
-      lint: String(formData.lint || ''),
-      shortQty: String(formData.shortQty || formData.missingQtyInPack || ''),
-      improperHem: String(formData.improperHem || ''),
-      poorQuality: String(formData.poorQuality || ''),
-      stain: String(formData.stain || ''),
-      deliveryIssue: String(formData.deliveryIssue || ''),
-      absorbency: String(formData.absorbency || ''),
-      wet: String(formData.wet || ''),
-      hole: String(formData.hole || ''),
+      // ========== QUALITY RELATED ISSUES (FIXED) ==========
+      unraveled: formData.unraveled ? formData.unraveled.toString() : '0',           // ✅ FIXED
+      stain: formData.stain ? formData.stain.toString() : '0',
+      looseThread: formData.looseThread ? formData.looseThread.toString() : '0',
+      hole: formData.hole ? formData.hole.toString() : '0',
+      rustStain: formData.rustStain ? formData.rustStain.toString() : '0',         // ✅ FIXED
+      shapeOut: formData.shapeOut ? formData.shapeOut.toString() : '0',
+      openCorner: formData.openCorner ? formData.openCorner.toString() : '0',
+      missingQtyInPack: formData.missingQtyInPack ? formData.missingQtyInPack.toString() : '0', // ✅ FIXED
+      poorQuality: formData.poorQuality ? formData.poorQuality.toString() : '0',
+      wet: formData.wet ? formData.wet.toString() : '0',
       
-      // ✅ NEW FIELDS - map from frontend names to schema names
-      harshFeel: String(formData.harshFeel || ''),
-      skrinkage: String(formData.skrinkage || formData.shrinkage || ''),
-      pilling: String(formData.pilling || ''),
-      colorBleeding: String(formData.colorBleeding || ''),
-      outOfStock: String(formData.outOfStock || ''),
-      badSmall: String(formData.badSmall || formData.badSmell || ''),
-      shapeOut: String(formData.shapeOut || ''),
+      // ========== PERFORMANCE RELATED ISSUES (FIXED) ==========
+      harshFeel: formData.harshFeel ? formData.harshFeel.toString() : '0',
+      lint: formData.lint ? formData.lint.toString() : '0',
+      thinFabric: formData.thinFabric ? formData.thinFabric.toString() : '0',
+      pilling: formData.pilling ? formData.pilling.toString() : '0',
+      badSmell: formData.badSmell ? formData.badSmell.toString() : '0',           // ✅ FIXED
+      shrinkage: formData.shrinkage ? formData.shrinkage.toString() : '0',        // ✅ FIXED
+      colorBleeding: formData.colorBleeding ? formData.colorBleeding.toString() : '0',
+      absorbency: formData.absorbency ? formData.absorbency.toString() : '0',
       
-      // ✅ Additional fields that might come from frontend
-      rustStain: String(formData.rustStain || ''),
-      notAsDescribed: String(formData.notAsDescribed || ''),
-      overCharged: String(formData.overCharged || ''),
+      // ========== NON-QUALITY RELATED ISSUES (FIXED) ==========
+      customerExpectation: formData.customerExpectation || '',
+      deliveryIssue: formData.deliveryIssue || '',
+      unclear: formData.unclear || '',
+      notAsDescribed: formData.notAsDescribed || '',                             // ✅ FIXED
+      outOfStock: formData.outOfStock || '',
+      priceIssue: formData.priceIssue || '',
+      overCharged: formData.overCharged || '',                                   // ✅ FIXED
+      
+      // Old fields
+      unravelingSeam: formData.unravelingSeam || formData.unraveled || '',
+      shadeVariation: formData.shadeVariation || '',
+      shortQty: formData.shortQty || formData.missingQtyInPack || '',
+      improperHem: formData.improperHem || '',
       
       createdAt: today
     };
 
-    console.log('📝 Prepared feedback data with date:', {
-      year: feedbackData.year,
-      month: feedbackData.month,
-      date: feedbackData.date,
-      formType: feedbackData.formType,
-      customer: feedbackData.customer,
-      item: feedbackData.item
-    });
-
-    console.log('🔍 Checking defect fields:', {
-      unraveled: formData.unraveled,
-      stain: formData.stain,
-      looseThread: formData.looseThread,
-      hole: formData.hole,
-      rustStain: formData.rustStain
+    console.log('📝 Prepared feedback data with defects:', {
+      unraveled: feedbackData.unraveled,
+      rustStain: feedbackData.rustStain,
+      missingQtyInPack: feedbackData.missingQtyInPack,
+      badSmell: feedbackData.badSmell,
+      shrinkage: feedbackData.shrinkage,
+      notAsDescribed: feedbackData.notAsDescribed,
+      overCharged: feedbackData.overCharged
     });
 
     const rating = new Rating(feedbackData);
     await rating.save();
     
     console.log('✅ Feedback saved successfully. ID:', rating._id);
-    console.log('📅 Saved with date:', {
-      year: rating.year,
-      month: rating.month,
-      date: rating.date,
-      createdAt: rating.createdAt
-    });
     
     res.status(201).json({ 
       success: true, 
